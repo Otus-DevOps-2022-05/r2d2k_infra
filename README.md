@@ -1,7 +1,7 @@
 # r2d2k_infra
 r2d2k Infra repository
 
-## Bastion host homework
+## Bastion host homework (SSH)
 **Задание №1:** Исследовать способ подключения к `someinternalhost` в одну команду из вашего рабочего устройства, проверить работоспособность найденного решения
 
 **Решение №1:** Использовать ключ `ssh -J`, который позволяет прокладывать подключение через один или несколько промежуточных хостов.
@@ -44,4 +44,12 @@ Welcome to Ubuntu 15.10 (GNU/Linux 4.2.0-generic x86_64)
  * Support:        https://ubuntu.com/advantage
 Last login: Wen Oct 21 07:28:00 2015 from 0.0.0.0
 appuser@someinternalhost:~$
+```
+
+## Bastion host homework (OpenVPN)
+
+Данные для проверки VPN сервера:
+```
+bastion_IP = 51.250.95.231
+someinternalhost_IP = 10.128.0.19
 ```
