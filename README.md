@@ -66,7 +66,7 @@ yc compute instance create \
  --name reddit-app \
  --hostname reddit-app \
  --memory=4 \
- --create-boot-disk image-folder-id=standard-images,image-family=ubuntu-2004-lts,size=10GB \
+ --create-boot-disk image-folder-id=standard-images,image-family=ubuntu-1604-lts,size=10GB \
  --network-interface subnet-name=subnet-1,nat-ip-version=ipv4 \
  --metadata serial-port-enable=1 \
  --ssh-key ~/.ssh/r2d2k-cloud.pub \
@@ -86,10 +86,14 @@ sudo apt install -y ruby-full ruby-bundler build-essential
 ```bash
 #!/bin/sh
 
+wget -qO - https://www.mongodb.org/static/pgp/server-4.2.asc | sudo apt-key add -
+echo "deb [ arch=amd64,arm64 ] https://repo.mongodb.org/apt/ubuntu xenial/mongodb-org/4.2 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-4.2.list
+
 sudo apt update
-sudo apt install -y mongodb
-sudo systemctl enable mongodb
-sudo systemctl start mongodb
+sudo apt install -y mongodb-org
+
+sudo systemctl enable mongod
+sudo systemctl start mongod
 
 ```
 
@@ -99,14 +103,16 @@ sudo systemctl start mongodb
 
 sudo apt install -y git
 cd ~
-git clone -b monolith https://github.com/express42/reddit.git && cd reddit && bundle update --bundler && bundle install
+git clone -b monolith https://github.com/express42/reddit.git && cd reddit && bundle install
 puma -d
 
 ```
 
 **Результат №1:**
 Машина создана, приложение развёрнуто, ждёт проверки, данные ниже.
+
+_Моя ошибка - пытаться использовать новые версии ПО, но автотесты этого не оценили._
 ```
-testapp_IP = 51.250.104.111
+testapp_IP = 62.84.121.73
 testapp_port = 9292
 ```
