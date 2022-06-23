@@ -7,7 +7,7 @@ r2d2k Infra repository
 **Решение №1:** Использовать ключ `ssh -J`, который позволяет прокладывать подключение через один или несколько промежуточных хостов.
 
 **Результат №1:**
-```
+```console
 localuser@localhost:~$ ssh -i ~/.ssh/appuser -J appuser@bastion_ext_ip appuser@someinternalhost_int_ip
 
 Welcome to Ubuntu 15.10 (GNU/Linux 4.2.0-generic x86_64)
@@ -23,7 +23,7 @@ appuser@someinternalhost:~$
 **Задание №2:** Предложить вариант решения для подключения из консоли при помощи команды вида `ssh someinternalhost` из локальной консоли рабочего устройства, чтобы подключение выполнялось по алиасу `someinternalhost`.
 
 **Решение №2:** Настроить alias в локальном конфиге ssh
-```
+```console
 localuser@localhost:~$ cat ~/.ssh/config
 
 Host someinternalhost
@@ -34,7 +34,7 @@ Host someinternalhost
 ```
 
 **Результат №2:**
-```
+```console
 localuser@localhost:~$ ssh someinternalhost
 
 Welcome to Ubuntu 15.10 (GNU/Linux 4.2.0-generic x86_64)
@@ -46,10 +46,67 @@ Last login: Wen Oct 21 07:28:00 2015 from 0.0.0.0
 appuser@someinternalhost:~$
 ```
 
+
 ## Bastion host homework (OpenVPN)
 
 Данные для проверки VPN сервера:
 ```
 bastion_IP = 51.250.95.231
 someinternalhost_IP = 10.128.0.19
+```
+
+
+## YC practice
+**Задание №1:** При помощи `yc` cоздать VM, установить приложение
+
+**Решение №1:** Все работы выполняем в несколько шагов
+1. Создание VM
+```console
+yc compute instance create \
+ --name reddit-app \
+ --hostname reddit-app \
+ --memory=4 \
+ --create-boot-disk image-folder-id=standard-images,image-family=ubuntu-2004-lts,size=10GB \
+ --network-interface subnet-name=subnet-1,nat-ip-version=ipv4 \
+ --metadata serial-port-enable=1 \
+ --ssh-key ~/.ssh/r2d2k-cloud.pub \
+ --zone ru-central1-b
+```
+
+2. Установка Ruby (install_ruby.sh)
+```bash
+#!/bin/sh
+
+sudo apt update
+sudo apt install -y ruby-full ruby-bundler build-essential
+
+```
+
+3. Установка MongoDB (install_mongodb.sh)
+```bash
+#!/bin/sh
+
+sudo apt update
+sudo apt install -y mongodb
+sudo systemctl enable mongodb
+sudo systemctl start mongodb
+
+```
+
+4. Установка и запуск приложения (deploy.sh)
+```bash
+#!/bin/sh
+
+sudo apt install -y git
+cd ~
+git clone -b monolith https://github.com/express42/reddit.git && cd reddit && bundle update --bundler && bundle install
+puma -d
+
+```
+
+**Результат №1:**
+Машина создана, приложение развёрнуто, ждёт проверки, данные ниже.
+```
+testapp_IP = 51.250.104.111
+testapp_port = 9292
 ```
