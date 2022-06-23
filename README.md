@@ -78,7 +78,7 @@ yc compute instance create \
 #!/bin/sh
 
 sudo apt-get update
-sudo apt-get install apt-transport-https ca-certificates
+sudo apt-get install -y apt-transport-https ca-certificates
 sudo apt-get install -y ruby-full ruby-bundler build-essential
 
 ```
@@ -116,4 +116,46 @@ _Моя ошибка - пытаться использовать новые ве
 ```
 testapp_IP = 62.84.121.73
 testapp_port = 9292
+```
+
+**Задание №2:** При помощи `yc` cоздать VM, установить приложение. Использовать метаданные для автоматизации работы
+
+**Решение №2:** Собираем все скрипты в один, указываем его в метаданных `yc`
+
+Скрипт (deploy_auto.sh)
+```bash
+#!/bin/sh
+
+sudo apt-get update
+sudo apt-get install -y apt-transport-https ca-certificates
+sudo apt-get install -y ruby-full ruby-bundler build-essential git
+
+wget -qO - https://www.mongodb.org/static/pgp/server-4.2.asc | sudo apt-key add -
+echo "deb [ arch=amd64,arm64 ] https://repo.mongodb.org/apt/ubuntu xenial/mongodb-org/4.2 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-4.2.list
+
+sudo apt-get update
+sudo apt-get install -y mongodb-org
+
+sudo systemctl enable mongod
+sudo systemctl start mongod
+
+sudo mkdir -p /opt/app
+cd /opt/app
+git clone -b monolith https://github.com/express42/reddit.git && cd reddit && bundle install
+puma -d
+
+```
+
+Запуск
+```console
+yc compute instance create \
+ --name reddit-app-auto \
+ --hostname reddit-app-auto \
+ --memory=4 \
+ --create-boot-disk image-folder-id=standard-images,image-family=ubuntu-1604-lts,size=10GB \
+ --network-interface subnet-name=subnet-1,nat-ip-version=ipv4 \
+ --metadata serial-port-enable=1 \
+ --metadata ssh-keys="user:ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCVGwT8xMD1j6jC4I/HLr5ctOdcuramEbS0KJzOtZCnBQrgjvmvaf2DaFpy2yd2NgyJBsD3XZSRicPcnqFpTaEws0bztMncVSiXRpKNLZpiYfYnrqT3AOiXsbt+B8RR9B0DSdnYUliLyGXY/yAOVbA10Wvpuh2R0sswpw/LUkP4/2L2ddDdelOGmC4WhXp9koEstD0ELe90+sUL/fcbWfzMkUpqqLFYwuqzb4gBvjif/WgtBWXfazO5Pc5AW2ZMZK1mZYW/hXffJY/NjhWIkZrHc5b7xwT1VXz6aQddRbKjAw4M988kT/tx523v7RdAbgAJUhM2TC6aOeQ/aJgn4T8463H5QuzAToRVAAioutZFGiedbPAl/dDlBAPZzTezUngSri5YMOwSNO+byKUZi1p5nklmn7DoZ8p14yWTF3xj3B0OqP+rDGfHV66YyPbDRmdaWxjB3wKEIWk+d0rNXZKvHN3UZfBFaMlDZ1yqw44nTulEamZvhpiLIj8hPsxpve8= r2d2k-cloud" \
+ --metadata-from-file user-data=deploy_auto.sh \
+ --zone ru-central1-b
 ```
