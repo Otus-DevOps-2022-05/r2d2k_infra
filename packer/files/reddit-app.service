@@ -1,0 +1,11 @@
+[Unit]
+Description="Simplr Reddit App"
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/app/reddit
+ExecStart=/usr/local/bin/puma
+
+[Install]
+WantedBy=multi-user.target
