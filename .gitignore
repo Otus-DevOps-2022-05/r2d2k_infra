@@ -5,3 +5,4 @@
 .terraform/
 terraform-key.json
 packer-key.json
+.terraform.lock.hcl
