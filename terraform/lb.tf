@@ -26,7 +26,12 @@ resource "yandex_lb_target_group" "lb_tg" {
   name = "reddit-app-targetgroup"
 
   target {
-    address   = yandex_compute_instance.app.network_interface.0.ip_address
+    address   = yandex_compute_instance.app1.network_interface.0.ip_address
+    subnet_id = var.subnet_id
+  }
+
+  target {
+    address   = yandex_compute_instance.app2.network_interface.0.ip_address
     subnet_id = var.subnet_id
   }
 }
