@@ -30,3 +30,8 @@ variable "public_key_path" {
 variable "private_key_path" {
   description = "Path to the private key used for ssh access"
 }
+
+variable "app_servers_count" {
+  description = "Application servers count"
+  default     = 1
+}

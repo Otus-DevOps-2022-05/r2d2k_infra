@@ -25,13 +25,11 @@ resource "yandex_lb_network_load_balancer" "lb" {
 resource "yandex_lb_target_group" "lb_tg" {
   name = "reddit-app-targetgroup"
 
-  target {
-    address   = yandex_compute_instance.app1.network_interface.0.ip_address
-    subnet_id = var.subnet_id
-  }
-
-  target {
-    address   = yandex_compute_instance.app2.network_interface.0.ip_address
-    subnet_id = var.subnet_id
+  dynamic "target" {
+    for_each = yandex_compute_instance.app.*.network_interface.0.ip_address
+    content {
+      address   = target.value
+      subnet_id = var.subnet_id
+    }
   }
 }
