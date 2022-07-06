@@ -1,0 +1,37 @@
+{
+    "variables": {
+        "mv_service_account_key_file": "",
+        "mv_folder_id": "",
+        "mv_source_image_family": ""
+    },
+    "builders": [
+        {
+            "type": "yandex",
+            "service_account_key_file": "{{user `mv_service_account_key_file`}}",
+            "folder_id": "{{user `mv_folder_id`}}",
+            "source_image_family": "{{user `mv_source_image_family`}}",
+            "image_name": "reddit-app-{{timestamp}}",
+            "image_family": "reddit-app",
+            "ssh_username": "ubuntu",
+            "platform_id": "standard-v1",
+            "use_ipv4_nat": "true"
+        }
+    ],
+    "provisioners": [
+        {
+            "type": "shell",
+            "script": "scripts/wait_120.sh",
+            "execute_command": "{{.Path}}"
+        },
+        {
+            "type": "shell",
+            "script": "scripts/install_ruby.sh",
+            "execute_command": "sudo {{.Path}}"
+        },
+        {
+            "type": "shell",
+            "script": "scripts/cleanup.sh",
+            "execute_command": "sudo {{.Path}}"
+        }
+    ]
+}

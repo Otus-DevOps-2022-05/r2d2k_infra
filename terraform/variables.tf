@@ -19,6 +19,14 @@ variable "image_id" {
   description = "Image id for VM"
 }
 
+variable "app_disk_image_id" {
+  description = "Disk image id for VM (app)"
+}
+
+variable "db_disk_image_id" {
+  description = "Disk image id for VM (db)"
+}
+
 variable "subnet_id" {
   description = "ID for subnet"
 }
