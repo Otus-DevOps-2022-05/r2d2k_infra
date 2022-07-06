@@ -1,9 +1,9 @@
 resource "yandex_compute_instance" "db" {
-  name = "reddit-db"
+  name = "reddit-db-${var.environment}"
   zone = var.zone
 
   labels = {
-    tags = "reddit-db"
+    tags = "reddit-db-${var.environment}"
   }
 
   resources {

@@ -11,6 +11,8 @@ module "app" {
   app_disk_image_id = var.app_disk_image_id
   subnet_id         = var.subnet_id
   zone              = var.zone
+  environment       = var.environment
+
 }
 
 module "db" {
@@ -19,4 +21,6 @@ module "db" {
   db_disk_image_id = var.db_disk_image_id
   subnet_id        = var.subnet_id
   zone             = var.zone
+  environment      = var.environment
+
 }

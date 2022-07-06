@@ -14,3 +14,7 @@ variable "public_key_path" {
 variable "subnet_id" {
   description = "ID for subnet"
 }
+
+variable "environment" {
+  description = "Current environment (stage, prod, etc)"
+}
