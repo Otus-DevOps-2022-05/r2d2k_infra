@@ -39,7 +39,16 @@ variable "private_key_path" {
   description = "Path to the private key used for ssh access"
 }
 
-
 variable "environment" {
   description = "Current environment (stage, prod, etc)"
+}
+
+variable "deploy_needed" {
+  description = "Deploy application if set to 'true'"
+  type        = bool
+  default     = false
+}
+
+variable "ipv4_subnet_blocks" {
+  description = "Address blocks for subnet"
 }
