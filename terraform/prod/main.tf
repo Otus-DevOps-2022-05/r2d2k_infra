@@ -6,7 +6,7 @@ provider "yandex" {
 }
 
 module "app" {
-  source            = "./modules/app"
+  source            = "../modules/app"
   public_key_path   = var.public_key_path
   private_key_path  = var.private_key_path
   app_disk_image_id = var.app_disk_image_id
@@ -18,7 +18,7 @@ module "app" {
 }
 
 module "db" {
-  source           = "./modules/db"
+  source           = "../modules/db"
   public_key_path  = var.public_key_path
   private_key_path = var.private_key_path
   db_disk_image_id = var.db_disk_image_id
@@ -29,7 +29,7 @@ module "db" {
 }
 
 module "subnet" {
-  source             = "./modules/vpc"
+  source             = "../modules/vpc"
   zone               = var.zone
   ipv4_subnet_blocks = var.ipv4_subnet_blocks
 }

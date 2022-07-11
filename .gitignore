@@ -2,6 +2,7 @@
 *.tfstate.*.backup
 *.tfstate.backup
 *.tfvars
+*.tfbackend
 .terraform/
 terraform-key.json
 packer-key.json

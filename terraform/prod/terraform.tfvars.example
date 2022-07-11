@@ -9,5 +9,3 @@ subnet_id                   = "00000000000000000000"
 public_key_path             = "~/.ssh/id_rsa.pub"
 private_key_path            = "~/.ssh/id_rsa"
 environment                 = "none"
-deploy_needed               = false
-ipv4_subnet_blocks          = ["0.0.0.0/0"]
