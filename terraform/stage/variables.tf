@@ -48,3 +48,7 @@ variable "deploy_needed" {
   type        = bool
   default     = false
 }
+
+variable "ipv4_subnet_blocks" {
+  description = "Address blocks for subnet"
+}
