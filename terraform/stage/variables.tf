@@ -42,3 +42,9 @@ variable "private_key_path" {
 variable "environment" {
   description = "Current environment (stage, prod, etc)"
 }
+
+variable "deploy_needed" {
+  description = "Deploy application if set to 'true'"
+  type        = bool
+  default     = false
+}

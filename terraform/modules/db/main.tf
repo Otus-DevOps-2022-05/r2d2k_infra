@@ -1,4 +1,5 @@
 resource "yandex_compute_instance" "db" {
+
   name = "reddit-db-${var.environment}"
   zone = var.zone
 
@@ -22,9 +23,22 @@ resource "yandex_compute_instance" "db" {
     nat       = true
   }
 
+  metadata = {
+    ssh-keys = "ubuntu:${file(var.public_key_path)}"
+  }
+
+}
+
+resource "null_resource" "db" {
+
+  count = var.deploy_needed ? 1 : 0
+
+  triggers = {
+    db_id = "yandex_compute_instance.db.id"
+  }
   connection {
     type        = "ssh"
-    host        = self.network_interface.0.nat_ip_address
+    host        = yandex_compute_instance.db.network_interface.0.nat_ip_address
     user        = "ubuntu"
     agent       = false
     private_key = file(var.private_key_path)
@@ -32,9 +46,5 @@ resource "yandex_compute_instance" "db" {
 
   provisioner "remote-exec" {
     script = "${path.module}/files/tune_mongodb.sh"
-  }
-
-  metadata = {
-    ssh-keys = "ubuntu:${file(var.public_key_path)}"
   }
 }

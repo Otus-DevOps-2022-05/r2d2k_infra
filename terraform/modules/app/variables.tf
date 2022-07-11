@@ -26,3 +26,9 @@ variable "environment" {
 variable "database_ip" {
   description = "IP address of Mongodb server"
 }
+
+variable "deploy_needed" {
+  description = "Deploy application if set to 'true'"
+  type        = bool
+  default     = false
+}
