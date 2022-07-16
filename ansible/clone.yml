@@ -3,7 +3,7 @@
   hosts: app
   tasks:
     - name: Install git package
-      ansible.builtin.package:
+      package:
         name: git
         state: present
       become: yes
