@@ -1,0 +1,9 @@
+
+- name: Install Python
+  hosts: all
+  gather_facts: no
+
+  tasks:
+    - name: Install Pyhon use raw module
+      raw: apt install -y python
+      become: yes
