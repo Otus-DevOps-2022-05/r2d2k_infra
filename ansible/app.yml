@@ -3,7 +3,7 @@
   hosts: app
   become: true
   vars:
-   db_host: 51.250.94.221
+   db_host: "{{ hostvars['var_holder']['db_host_ip'] }}"
   tasks:
     - name: Add unit file for Puma
       copy:
@@ -17,6 +17,7 @@
         dest: /home/ubuntu/db_config
         owner: ubuntu
         group: ubuntu
+      notify: reload puma
 
     - name: enable puma
       systemd: name=puma enabled=yes

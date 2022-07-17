@@ -12,6 +12,11 @@
         mode: 0644
       notify: restart mongodb
 
+    - name: Store db_host to fake host
+      add_host:
+        name: "var_holder"
+        db_host_ip: "{{ ansible_facts.default_ipv4.address }}"
+
   handlers:
   - name: restart mongodb
     service: name=mongodb state=restarted
