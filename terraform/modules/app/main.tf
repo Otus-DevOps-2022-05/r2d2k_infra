@@ -5,6 +5,7 @@ resource "yandex_compute_instance" "app" {
 
   labels = {
     tags = "reddit-app-${var.environment}"
+    group = "app"
   }
 
   resources {
