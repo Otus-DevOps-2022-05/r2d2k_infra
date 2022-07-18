@@ -3,7 +3,7 @@
 # Скрипт написан в учебных целях, содержит ряд допущений
 # Скрипт не принимает и не обрабатывает параметры командной строки
 # Для работы скрипта нужно указать ниже параметры folder_id и sa_key_filename
-# Группы хостов создаются из тегов хоста, т.е. у хоста должен быть только один тег и он должен быть задан в виде строки
+# Группы хостов создаются из меток хоста, т.е. у хоста должна быть метка group и она должна быть задана в виде строки
 # У каждого из хостов должен быть хотя бы один внешний IP адрес
 #
 
@@ -63,7 +63,7 @@ inventory['_meta']['hostvars'] = {}
 for instance in response_json['instances']:
     i_name = instance['name']
     i_fqdn = instance['fqdn']
-    i_group = instance['labels']['tags']
+    i_group = instance['labels']['group']
     i_ext_ip = instance['networkInterfaces'][0]['primaryV4Address']['oneToOneNat']['address']
     ansible_vars = {}
     ansible_vars['ansible_host'] = i_ext_ip

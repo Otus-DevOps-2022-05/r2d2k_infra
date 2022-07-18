@@ -1,0 +1,22 @@
+---
+- name: Configure MongoDB
+  hosts: db
+  become: true
+  vars:
+    mongo_bind_ip: 0.0.0.0
+  tasks:
+    - name: Change mongodb config file
+      template:
+        src: templates/mongodb.conf.j2
+        dest: /etc/mongodb.conf
+        mode: 0644
+      notify: restart mongodb
+
+    - name: Store db_host to fake host
+      add_host:
+        name: "var_holder"
+        db_host_ip: "{{ ansible_facts.default_ipv4.address }}"
+
+  handlers:
+  - name: restart mongodb
+    service: name=mongodb state=restarted

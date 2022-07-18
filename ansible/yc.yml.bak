@@ -1,0 +1,19 @@
+plugin: yc_compute
+
+folders:
+  - ******************pp
+
+auth_kind: serviceaccountfile
+
+service_account_file: ./ansible-key.json
+
+hostnames:
+  - fqdn
+
+compose:
+  ansible_host: network_interfaces[0].primary_v4_address.one_to_one_nat.address
+
+keyed_groups:
+  - key: labels['group']
+    prefix: ''
+    separator: ''

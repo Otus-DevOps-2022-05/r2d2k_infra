@@ -19,19 +19,8 @@
     ],
     "provisioners": [
         {
-            "type": "shell",
-            "script": "scripts/wait_120.sh",
-            "execute_command": "{{.Path}}"
-        },
-        {
-            "type": "shell",
-            "script": "scripts/install_mongodb.sh",
-            "execute_command": "sudo {{.Path}}"
-        },
-        {
-            "type": "shell",
-            "script": "scripts/cleanup.sh",
-            "execute_command": "sudo {{.Path}}"
+            "type": "ansible",
+            "playbook_file": "ansible/packer_db.yml"
         }
     ]
 }

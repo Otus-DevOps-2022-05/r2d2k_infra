@@ -10,6 +10,7 @@
 - [05 - Terraform-1](#05---terraform-1)
 - [06 - Terraform-2](#06---terraform-2)
 - [07 - Ansible-1](#07---ansible-1)
+- [08 - Ansible-2](#08---ansible-2)
 
 <!-- /MarkdownTOC -->
 
@@ -2765,3 +2766,1494 @@ fhmupp78em66421ll9g7.auto.internal | SUCCESS => {
 Всё работает.
 
 ---
+
+## 08 - Ansible-2
+
+**Задание №08-1:** Знакомство с Ansible, часть 2
+
+**Решение №08-1:**
+
+Исходные данные:
+```console
+> cat /etc/os-release
+PRETTY_NAME="Ubuntu 22.04 LTS"
+NAME="Ubuntu"
+VERSION_ID="22.04"
+VERSION="22.04 LTS (Jammy Jellyfish)"
+VERSION_CODENAME=jammy
+...
+
+> python3 --version
+Python 3.10.4
+
+>python2 --version
+Python 2.7.18
+
+> ansible --version
+ansible 2.6.0
+
+> terraform version
+Terraform v0.12.30
++ provider.null v3.1.0
++ provider.yandex v0.56.0
+...
+```
+
+Создаём новую ветку:
+```console
+> git checkout -b ansible-2
+Switched to a new branch 'ansible-2'
+```
+
+На базе предыдущего занятия по `terraform` создаём две виртуальные машины, сервер приложений и сервер БД. Работаем в окружении `stage`, через переменную `deploy_needed = false` отключаем установку и настройку приложений. После `terraform apply` получим два внешних адреса.
+```console
+> terraform apply
+...
+
+Outputs:
+
+external_ip_address_app = 51.250.81.11
+external_ip_address_db = 51.250.92.226
+```
+
+В метки хостов модулей `app`, `db` добавим `group`, по ней будем строить динамический инвентори, разносить хосты по группам. Изменения внесём такие:
+```diff
+diff --git a/ansible/yc-inventory.py b/ansible/yc-inventory.py
+--- a/ansible/yc-inventory.py
++++ b/ansible/yc-inventory.py
+@@ -3,7 +3,7 @@
+ # Скрипт написан в учебных целях, содержит ряд допущений
+ # Скрипт не принимает и не обрабатывает параметры командной строки
+ # Для работы скрипта нужно указать ниже параметры folder_id и sa_key_filename
+-# Группы хостов создаются из тегов хоста, т.е. у хоста должен быть только один тег и он должен быть задан в виде строки
++# Группы хостов создаются из меток хоста, т.е. у хоста должна быть метка group и она должна быть задана в виде строки
+ # У каждого из хостов должен быть хотя бы один внешний IP адрес
+ #
+
+@@ -63,7 +63,7 @@ inventory['_meta']['hostvars'] = {}
+ for instance in response_json['instances']:
+     i_name = instance['name']
+     i_fqdn = instance['fqdn']
+-    i_group = instance['labels']['tags']
++    i_group = instance['labels']['group']
+     i_ext_ip = instance['networkInterfaces'][0]['primaryV4Address']['oneToOneNat']['address']
+     ansible_vars = {}
+     ansible_vars['ansible_host'] = i_ext_ip
+```
+
+Проверим работу:
+```console
+> ansible all -m ping
+fhmrhv3n23sc6dfm30t3.auto.internal | FAILED! => {
+    "changed": false,
+    "module_stderr": "Shared connection to 51.250.81.11 closed.\r\n",
+    "module_stdout": "/bin/sh: 1: /usr/bin/python: not found\r\n",
+    "msg": "MODULE FAILURE",
+    "rc": 127
+}
+fhmea26pati7cb4lckmd.auto.internal | FAILED! => {
+    "changed": false,
+    "module_stderr": "Shared connection to 51.250.92.226 closed.\r\n",
+    "module_stdout": "/bin/sh: 1: /usr/bin/python: not found\r\n",
+    "msg": "MODULE FAILURE",
+    "rc": 127
+}
+```
+
+На удалённых машинах не `python`, работать ничего не будет. У нас два варианта - обновить исходные образы, добавив в них нужные пакеты, либо установить `python` при помощи `ansible`. Напишем короткий `install_python.yml`:
+```yaml
+- name: Install Python
+  hosts: all
+  gather_facts: no
+
+  tasks:
+    - name: Install Pyhon use raw module
+      raw: apt install -y python
+      become: yes
+```
+
+Применяем:
+```console
+> ansible-playbook install_python.yml
+PLAY [Install Python] *************************************************************
+
+TASK [Install Pyhon use raw module] ***********************************************
+changed: [fhmrhv3n23sc6dfm30t3.auto.internal]
+changed: [fhmea26pati7cb4lckmd.auto.internal]
+
+PLAY RECAP ************************************************************************
+fhmea26pati7cb4lckmd.auto.internal : ok=1    changed=1    unreachable=0    failed=0
+fhmrhv3n23sc6dfm30t3.auto.internal : ok=1    changed=1    unreachable=0    failed=0
+```
+
+Проверяем связь:
+```console
+> ansible all -m ping
+fhmrhv3n23sc6dfm30t3.auto.internal | SUCCESS => {
+    "changed": false,
+    "ping": "pong"
+}
+fhmea26pati7cb4lckmd.auto.internal | SUCCESS => {
+    "changed": false,
+    "ping": "pong"
+}
+```
+
+Создаём `reddit_app.yml` для настройки MongoDB:
+```yaml
+- name: Configure hosts & deploy application
+  hosts: db
+
+  tasks:
+    - name: Change mongo config file
+      become: true
+      template:
+        src: templates/mongodb.conf.j2
+        dest: /etc/mongodb.conf
+        mode: 0644
+      tags: db-tag
+```
+
+И шаблон `templates/mongodb.conf.j2` к нему 
+```yaml
+# Where and how to store data.
+storage:
+  dbPath: /var/lib/mongodb
+  journal:
+    enabled: true
+
+# where to write logging data.
+systemLog:
+  destination: file
+  logAppend: true
+  path: /var/log/mongodb/mongodb.log
+
+# network interfaces
+net:
+  port: {{ mongo_port | default('27017') }}
+  bindIp: {{ mongo_bind_ip }}
+```
+
+Проверяем:
+```console
+> ansible-playbook reddit_app.yml --check
+
+PLAY [Configure hosts & deploy application] *******************************************************************************************************************************
+
+TASK [Gathering Facts] *******************************************************************************************************************************
+ok: [fhmea26pati7cb4lckmd.auto.internal]
+
+TASK [Change mongo config file] *******************************************************************************************************************************
+fatal: [fhmea26pati7cb4lckmd.auto.internal]: FAILED! => {"changed": false, "msg": "AnsibleUndefinedVariable: 'mongo_bind_ip' is undefined"}
+
+PLAY RECAP *******************************************************************************************************************************
+fhmea26pati7cb4lckmd.auto.internal : ok=1    changed=0    unreachable=0    failed=1
+```
+
+Не хватает переменных. Добавим:
+```yaml
+- name: Configure hosts & deploy application
+  hosts: db
+  vars:
+    mongo_bind_ip: 0.0.0.0
+
+  tasks:
+    - name: Change mongodb config file
+      become: true
+      template:
+        src: templates/mongodb.conf.j2
+        dest: /etc/mongodb.conf
+        mode: 0644
+      tags: db-tag
+```
+
+Проверяем:
+```console
+> ansible-playbook reddit_app.yml --check --limit db
+
+
+PLAY [Configure hosts & deploy application] ***************************************
+
+TASK [Gathering Facts] ************************************************************
+ok: [fhmea26pati7cb4lckmd.auto.internal]
+
+TASK [Change mongo config file] ***************************************************
+changed: [fhmea26pati7cb4lckmd.auto.internal]
+
+PLAY RECAP ************************************************************************
+fhmea26pati7cb4lckmd.auto.internal : ok=2    changed=1    unreachable=0    failed=0
+```
+
+Всё в порядке. Можем применять:
+```console
+> ansible-playbook reddit_app.yml --limit db
+PLAY [Configure hosts & deploy application] ***************************************
+
+TASK [Gathering Facts] ************************************************************
+ok: [fhmea26pati7cb4lckmd.auto.internal]
+
+TASK [Change mongodb config file] *************************************************
+changed: [fhmea26pati7cb4lckmd.auto.internal]
+
+RUNNING HANDLER [restart mongodb] *************************************************
+changed: [fhmea26pati7cb4lckmd.auto.internal]
+
+PLAY RECAP ************************************************************************
+fhmea26pati7cb4lckmd.auto.internal : ok=3    changed=2    unreachable=0    failed=0
+```
+
+Проверим, что у нас на хосте `db`: 
+```console
+ubuntu@fhmea26pati7cb4lckmd:~$ ss -nlp4
+Netid State      Recv-Q Send-Q Local Address:Port               Peer Address:Port    
+udp   UNCONN     0      0            *:68                       *:*
+udp   UNCONN     0      0            *:68                       *:*
+tcp   LISTEN     0      128          *:27017                    *:*
+tcp   LISTEN     0      128          *:22                       *:*
+```
+
+Настройки применены, сервис `mongodb` прослушивает все интерфейсы.
+Займёмся настройкой приложения, создаём `files/puma.service`:
+```ini
+[Unit]
+Description=Puma HTTP Server
+After=network.target
+
+[Service]
+Type=simple
+EnvironmentFile=/home/ubuntu/db_config
+User=ubuntu
+WorkingDirectory=/home/ubuntu/reddit
+ExecStart=/bin/bash -lc 'puma'
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Обновим файл `reddit_app.yml`:
+```yaml
+- name: Configure hosts & deploy application
+  hosts: all
+  vars:
+    mongo_bind_ip: 0.0.0.0
+    db_host: 192.168.10.19
+
+  tasks:
+    - name: Change mongodb config file
+      become: true
+      template:
+        src: templates/mongodb.conf.j2
+        dest: /etc/mongodb.conf
+        mode: 0644
+      tags: db-tag
+      notify: restart mongodb
+
+    - name: Add unit file for Puma
+      become: true
+      copy:
+        src: files/puma.service
+        dest: /etc/systemd/system/puma.service
+      tags: app-tag
+      notify: reload puma
+
+    - name: Add config for DB connection
+      template:
+        src: templates/db_config.j2
+        dest: /home/ubuntu/db_config
+      tags: app-tag
+
+    - name: enable puma
+      become: true
+      systemd: name=puma enabled=yes
+      tags: app-tag
+
+  handlers:
+    - name: restart mongodb
+      service: name=mongodb state=restarted
+      become: true
+
+    - name: reload puma
+      service: name=puma state=restarted
+      become: true
+```
+
+Добавим файл шаблона переменной окружения `templates/db_config.j2`:
+```yaml
+DATABASE_URL={{ db_host }}
+```
+
+Применяем:
+```console
+> ansible-playbook reddit_app.yml --limit app --tags app-tag
+
+PLAY [Configure hosts & deploy application] ***************************************
+
+TASK [Gathering Facts] ************************************************************
+ok: [fhmrhv3n23sc6dfm30t3.auto.internal]
+
+TASK [Add unit file for Puma] *****************************************************
+changed: [fhmrhv3n23sc6dfm30t3.auto.internal]
+
+TASK [Add config for DB connection] ***********************************************
+changed: [fhmrhv3n23sc6dfm30t3.auto.internal]
+
+TASK [enable puma] ****************************************************************
+changed: [fhmrhv3n23sc6dfm30t3.auto.internal]
+
+RUNNING HANDLER [reload puma] *****************************************************
+changed: [fhmrhv3n23sc6dfm30t3.auto.internal]
+
+PLAY RECAP ************************************************************************
+fhmrhv3n23sc6dfm30t3.auto.internal : ok=5    changed=4    unreachable=0    failed=0
+```
+
+Работает. Добавляем обновление исходников приложения из репозитория + устанавливаем сам `git`:
+```yaml
+- name: Configure hosts & deploy application
+  hosts: all
+  vars:
+    mongo_bind_ip: 0.0.0.0
+    db_host: 192.168.10.19
+
+  tasks:
+    - name: Install git
+      become: true
+      apt:
+        name: git
+        state: present
+      tags: deploy-tag
+
+    - name: Change mongodb config file
+      become: true
+      template:
+        src: templates/mongodb.conf.j2
+        dest: /etc/mongodb.conf
+        mode: 0644
+      tags: db-tag
+      notify: restart mongodb
+
+    - name: Fetch the latest version of application code
+      git:
+        repo: 'https://github.com/express42/reddit.git'
+        dest: /home/ubuntu/reddit
+        version: monolith
+      tags: deploy-tag
+      notify: reload puma
+
+    - name: Bundle install
+      bundler:
+        state: present
+        chdir: /home/ubuntu/reddit
+      tags: deploy-tag
+
+    - name: Add unit file for Puma
+      become: true
+      copy:
+        src: files/puma.service
+        dest: /etc/systemd/system/puma.service
+      tags: app-tag
+      notify: reload puma
+
+    - name: Add config for DB connection
+      template:
+        src: templates/db_config.j2
+        dest: /home/ubuntu/db_config
+      tags: app-tag
+
+    - name: enable puma
+      become: true
+      systemd: name=puma enabled=yes
+      tags: app-tag
+
+  handlers:
+    - name: restart mongodb
+      service: name=mongodb state=restarted
+      become: true
+
+    - name: reload puma
+      service: name=puma state=restarted
+      become: true
+```
+
+Проверяем:
+```console
+> ansible-playbook reddit_app.yml --limit app --tags deploy-tag
+
+PLAY [Configure hosts & deploy application] ***************************************
+
+TASK [Gathering Facts] ************************************************************
+ok: [fhmrhv3n23sc6dfm30t3.auto.internal]
+
+TASK [Install git] ****************************************************************
+changed: [fhmrhv3n23sc6dfm30t3.auto.internal]
+
+TASK [Fetch the latest version of application code] *******************************
+changed: [fhmrhv3n23sc6dfm30t3.auto.internal]
+
+TASK [Bundle install] *************************************************************
+changed: [fhmrhv3n23sc6dfm30t3.auto.internal]
+
+RUNNING HANDLER [reload puma] *****************************************************
+changed: [fhmrhv3n23sc6dfm30t3.auto.internal]
+
+PLAY RECAP ************************************************************************
+fhmrhv3n23sc6dfm30t3.auto.internal : ok=5    changed=4    unreachable=0    failed=0
+```
+
+Всё работает, приложение доступно по адресу http://51.250.81.11:9292/.
+
+---
+
+Удаляем инфраструктуру `terraform destroy`, создаём заново `terraform apply`:
+```console
+...
+Apply complete! Resources: 4 added, 0 changed, 0 destroyed.
+
+Outputs:
+
+external_ip_address_app = 51.250.94.103
+external_ip_address_db = 51.250.92.226
+``` 
+
+Устанавливаем `python` на машины: `ansible-playbook install_python.yml`.
+Переписываем playbook, делим его на две части: настройка сервера БД и настройка сервера приложений, сохраняем в `reddit_app2.yml`.
+```yaml
+- name: Configure MongoDB
+  hosts: db
+  tags: db-tag
+  become: true
+  vars:
+    mongo_bind_ip: 0.0.0.0
+  tasks:
+    - name: Change mongodb config file
+      template:
+        src: templates/mongodb.conf.j2
+        dest: /etc/mongodb.conf
+        mode: 0644
+      notify: restart mongodb
+
+  handlers:
+  - name: restart mongodb
+    service: name=mongodb state=restarted
+
+- name: Configure App
+  hosts: app
+  tags: app-tag
+  become: true
+  vars:
+   db_host: 51.250.92.226
+  tasks:
+    - name: Add unit file for Puma
+      copy:
+        src: files/puma.service
+        dest: /etc/systemd/system/puma.service
+      notify: reload puma
+
+    - name: Add config for DB connection
+      template:
+        src: templates/db_config.j2
+        dest: /home/ubuntu/db_config
+        owner: ubuntu
+        group: ubuntu
+
+    - name: enable puma
+      systemd: name=puma enabled=yes
+
+  handlers:
+  - name: reload puma
+    systemd: name=puma state=restarted
+
+- name: Deploy App
+  hosts: app
+  tags: deploy-tag
+  become: true
+  tasks:
+    - name: Install git
+      apt:
+        name: git
+        state: present
+
+    - name: Fetch the latest version of application code
+      git:
+        repo: 'https://github.com/express42/reddit.git'
+        dest: /home/ubuntu/reddit
+        version: monolith
+      notify: reload puma
+
+    - name: Bundle install
+      bundler:
+        state: present
+        chdir: /home/ubuntu/reddit
+      notify: reload puma
+
+  handlers:
+  - name: reload puma
+    systemd: name=puma state=restarted
+```
+
+Проверяем поочерёдно:
+- `ansible-playbook reddit_app2.yml --tags db-tag --check`
+- `ansible-playbook reddit_app2.yml --tags db-tag`
+- `ansible-playbook reddit_app2.yml --tags app-tag --check`
+- `ansible-playbook reddit_app2.yml --tags app-tag`
+- `ansible-playbook reddit_app2.yml --tags deploy-tag --check`
+- `ansible-playbook reddit_app2.yml --tags deploy-tag`
+
+Проверяем приложение - всё работает.
+
+---
+
+Делим наш playbook на отдельные файлы.
+Содержимое `app.yml`:
+```yaml
+- name: Configure App
+  hosts: app
+  become: true
+  vars:
+   db_host: 51.250.92.226
+  tasks:
+    - name: Add unit file for Puma
+      copy:
+        src: files/puma.service
+        dest: /etc/systemd/system/puma.service
+      notify: reload puma
+
+    - name: Add config for DB connection
+      template:
+        src: templates/db_config.j2
+        dest: /home/ubuntu/db_config
+        owner: ubuntu
+        group: ubuntu
+
+    - name: enable puma
+      systemd: name=puma enabled=yes
+
+  handlers:
+  - name: reload puma
+    systemd: name=puma state=restarted
+```
+
+Содержимое `db.yml`:
+```yaml
+- name: Configure MongoDB
+  hosts: db
+  become: true
+  vars:
+    mongo_bind_ip: 0.0.0.0
+  tasks:
+    - name: Change mongodb config file
+      template:
+        src: templates/mongodb.conf.j2
+        dest: /etc/mongodb.conf
+        mode: 0644
+      notify: restart mongodb
+
+  handlers:
+  - name: restart mongodb
+    service: name=mongodb state=restarted
+```
+
+Содержимое `deploy.yml`:
+```yaml
+- name: Deploy App
+  hosts: app
+  become: true
+  tasks:
+    - name: Install git
+      apt:
+        name: git
+        state: present
+
+    - name: Fetch the latest version of application code
+      git:
+        repo: 'https://github.com/express42/reddit.git'
+        dest: /home/ubuntu/reddit
+        version: monolith
+      notify: reload puma
+
+    - name: Bundle install
+      bundler:
+        state: present
+        chdir: /home/ubuntu/reddit
+      notify: reload puma
+
+  handlers:
+  - name: reload puma
+    systemd: name=puma state=restarted
+```
+
+Объединим все три файла в один `site.yml`:
+```yaml
+- import_playbook: install_python.yml
+- import_playbook: db.yml
+- import_playbook: app.yml
+- import_playbook: deploy.yml
+```
+
+Удаляем инфраструктуру `terraform destroy`, создаём заново `terraform apply`:
+```console
+...
+Apply complete! Resources: 4 added, 0 changed, 0 destroyed.
+
+Outputs:
+
+external_ip_address_app = 51.250.92.123
+external_ip_address_db = 51.250.94.221
+``` 
+
+Обновляем переменную `db_host` в `app.yml`, проверяем `ansible-playbook site.yml --check`, запускаем `ansible-playbook site.yml`:
+```console
+> ansible-playbook site.yml
+PLAY [Install Python] *************************************************************
+
+TASK [Install Pyhon use raw module] ***********************************************
+changed: [fhmckjssuf6p608vas5u.auto.internal]
+changed: [fhmj1hed13lv03jtck88.auto.internal]
+
+PLAY [Configure MongoDB] **********************************************************
+
+TASK [Gathering Facts] ************************************************************
+ok: [fhmckjssuf6p608vas5u.auto.internal]
+
+TASK [Change mongodb config file] *************************************************
+changed: [fhmckjssuf6p608vas5u.auto.internal]
+
+RUNNING HANDLER [restart mongodb] *************************************************
+changed: [fhmckjssuf6p608vas5u.auto.internal]
+
+PLAY [Configure App] **************************************************************
+
+TASK [Gathering Facts] ************************************************************
+ok: [fhmj1hed13lv03jtck88.auto.internal]
+
+TASK [Add unit file for Puma] *****************************************************
+changed: [fhmj1hed13lv03jtck88.auto.internal]
+
+TASK [Add config for DB connection] ***********************************************
+changed: [fhmj1hed13lv03jtck88.auto.internal]
+
+TASK [enable puma] ****************************************************************
+changed: [fhmj1hed13lv03jtck88.auto.internal]
+
+RUNNING HANDLER [reload puma] *****************************************************
+changed: [fhmj1hed13lv03jtck88.auto.internal]
+
+PLAY [Deploy App] *****************************************************************
+
+TASK [Gathering Facts] ************************************************************
+ok: [fhmj1hed13lv03jtck88.auto.internal]
+
+TASK [Install git] ****************************************************************
+changed: [fhmj1hed13lv03jtck88.auto.internal]
+
+TASK [Fetch the latest version of application code] *******************************
+changed: [fhmj1hed13lv03jtck88.auto.internal]
+
+TASK [Bundle install] *************************************************************
+changed: [fhmj1hed13lv03jtck88.auto.internal]
+
+RUNNING HANDLER [reload puma] *****************************************************
+changed: [fhmj1hed13lv03jtck88.auto.internal]
+
+PLAY RECAP ************************************************************************
+fhmckjssuf6p608vas5u.auto.internal : ok=4    changed=3    unreachable=0    failed=0
+fhmj1hed13lv03jtck88.auto.internal : ok=11   changed=9    unreachable=0    failed=0
+```
+
+**Результат №08-1:**
+
+Ошибок нет, всё работает, приложение доступно по внешнему адресу http://51.250.92.123:9292/. Завидная повторяемость)
+
+---
+
+**Задание №08-2:**
+Ansible на текущий момент (07.2020) из коробки не умеет динамическую инвентаризацию в Yandex.Cloud. Нам нужно писать свои костыли, как в предыдущем ДЗ. Но если порыскать по репозиторию, то можно натолкнуться на вот [PR](https://github.com/ansible/ansible/pull/61722). Попробуйте использовать это решение для инвентаризации.
+
+**Решение №08-2:**
+Идём по ссылке, видим, что кто-то уже предложил вариант динамического инвентори, которое работает напрямую с облаком. Я случайно написал подобный скрипт в прошлом задании, но раз просят использовать этот PR, то попробуем разобраться с ним. 
+
+Смотрим, откуда приехал этот PR, клонируем его себе локально с указанием ветки: `git clone --branch yc_compute https://github.com/st8f/community.general.git`. Сам плагин находим тут: `community.general/plugins/inventory/yc_compute.py`. Читаем, изучаем. Параллельно изучаем документацию по [inventory plugins](https://docs.ansible.com/ansible/latest/plugins/inventory.html).
+
+Чтобы подключить плагин, нужно добавить его в `ansible.cfg`:
+```ini
+...
+[inventory]
+enable_plugins = yc_compute
+...
+```
+
+Проверяем:
+```console
+> ansible-inventory --list
+ [WARNING]: Failed to load inventory plugin, skipping yc_compute
+```
+
+Правильно, плагина нет в поставке. Добавим руками. Проверяем место размещения плагинов инвентори:
+```console
+> ansible-config dump | grep inventory
+DEFAULT_INVENTORY_PLUGIN_PATH(default) = [u'/home/ubuntu/.ansible/plugins/inventory', u'/usr/share/ansible/plugins/inventory']
+VARIABLE_PRECEDENCE(default) = ['all_inventory', 'groups_inventory', 'all_plugins_inventory', 'all_plugins_play', 'groups_plugins_inventory', 'groups_plugins_play']
+```
+
+На моей машине плагины инвентори лежат по пути `/home/ubuntu/.ansible/plugins/inventory`, закинем туда наш `yc_compute.py` из ранее клонированного репозитория.
+Проверяем:
+```console
+> ansible-inventory --list
+ERROR! Import error for yandex.cloud SDK. Please install "yandexcloud" package to your environment.
+```
+
+_Тут я получил проблемы с python27. В итоге удалил ansible, зачистил систему от python27, установил свежий ansible и python310 с пакетом python3-pip._
+
+Просят установить Yandex.SDK, сделаем это: `pip3 install yandexcloud`. После проверим работу инвентори:
+```console
+> ansible-inventory --list
+[WARNING]: Unable to parse /home/ubuntu/r2d2k_infra/ansible/inventory.yml as an inventory source
+[WARNING]: No inventory was parsed, only implicit localhost is available
+{
+    "_meta": {
+        "hostvars": {}
+    },
+    "all": {
+        "children": [
+            "ungrouped"
+        ]
+    }
+}
+```
+
+Ничего не выходит, пора читать документацию и для этого в ansible есть свой способ. Для начала проверяем список доступных плагинов инвентори:
+
+```console
+> ansible-doc -t inventory --list
+advanced_host_list                   Parses a 'host list' with ranges
+amazon.aws.aws_ec2                   EC2 inventory source
+amazon.aws.aws_rds                   rds instance source
+auto                                 Loads and executes an inventory plugin specified in a YAML config
+awx.awx.tower                        Ansible dynamic inventory plugin for Ansible Tower
+azure.azcollection.azure_rm          Azure Resource Manager inventory plugin
+cloudscale_ch.cloud.inventory        cloudscale.ch inventory source
+community.docker.docker_containers   Ansible dynamic inventory plugin for Docker containers
+community.docker.docker_machine      Docker Machine inventory source
+community.docker.docker_swarm        Ansible dynamic inventory plugin for Docker swarm nodes
+community.general.cobbler            Cobbler inventory source
+community.general.docker_machine     Docker Machine inventory source
+community.general.docker_swarm       Ansible dynamic inventory plugin for Docker swarm nodes
+community.general.gitlab_runners     Ansible dynamic inventory plugin for GitLab runners
+community.general.kubevirt           KubeVirt inventory source
+community.general.linode             Ansible dynamic inventory plugin for Linode
+community.general.nmap               Uses nmap to find hosts to target
+community.general.online             Scaleway (previously Online SAS or Online.net) inventory source
+community.general.proxmox            Proxmox inventory source
+community.general.scaleway           Scaleway inventory source
+community.general.stackpath_compute  StackPath Edge Computing inventory source
+community.general.virtualbox         virtualbox inventory source
+community.hrobot.robot               Hetzner Robot inventory source
+community.kubernetes.k8s             Kubernetes (K8s) inventory source
+community.kubernetes.openshift       OpenShift inventory source
+community.kubevirt.kubevirt          KubeVirt inventory source
+community.libvirt.libvirt            Libvirt inventory source
+community.okd.openshift              OpenShift inventory source
+community.vmware.vmware_vm_inventory VMware Guest inventory source
+constructed                          Uses Jinja2 to construct vars and groups based on existing inventory
+generator                            Uses Jinja2 to construct hosts and groups from patterns
+google.cloud.gcp_compute             Google Cloud Compute Engine inventory source
+hetzner.hcloud.hcloud                Ansible dynamic inventory plugin for the Hetzner Cloud
+host_list                            Parses a 'host list' string
+ini                                  Uses an Ansible INI file as inventory source
+netbox.netbox.nb_inventory           NetBox inventory source
+ngine_io.vultr.vultr                 Vultr inventory source
+openstack.cloud.openstack            OpenStack inventory source
+ovirt.ovirt.ovirt                    oVirt inventory source
+script                               Executes an inventory script that returns JSON
+servicenow.servicenow.now            ServiceNow Inventory Plugin
+theforeman.foreman.foreman           Foreman inventory source
+toml                                 Uses a specific TOML file as an inventory source
+yaml                                 Uses a specific YAML file as an inventory source
+yc_compute                           Yandex.Cloud Compute inventory source
+```
+
+Нас интересует последний плагин. Запрашиваем по нему подробности:
+
+```console
+> ansible-doc -t inventory yc_compute
+> YC_COMPUTE    (/home/ubuntu/.ansible/plugins/inventory/yc_compute.py)
+
+        Pull inventory from Yandex Cloud Compute. Uses a YAML configuration file that ends with yc_compute.(yml|yaml) or
+        yc.(yml|yaml).
+
+OPTIONS (= is mandatory):
+
+- api_retry_count
+        Retries count for API calls.
+        [Default: 5]
+        type: int
+
+= auth_kind
+        The type of credential used.
+        (Choices: oauth, serviceaccountfile)
+        set_via:
+          env:
+          - name: YC_ANSIBLE_AUTH_KIND
+
+        type: string
+
+- cache
+        Toggle to enable/disable the caching of the inventory's source data, requires a cache plugin setup to work.
+        [Default: False]
+        set_via:
+          env:
+          - name: ANSIBLE_INVENTORY_CACHE
+          ini:
+          - key: cache
+            section: inventory
+
+        type: bool
+
+- cache_connection
+        Cache connection data or path, read cache plugin documentation for specifics.
+        [Default: (null)]
+        set_via:
+          env:
+          - name: ANSIBLE_CACHE_PLUGIN_CONNECTION
+          - name: ANSIBLE_INVENTORY_CACHE_CONNECTION
+          ini:
+          - key: fact_caching_connection
+            section: defaults
+          - key: cache_connection
+            section: inventory
+
+        type: str
+
+- cache_plugin
+        Cache plugin to use for the inventory's source data.
+        [Default: memory]
+        set_via:
+          env:
+          - name: ANSIBLE_CACHE_PLUGIN
+          - name: ANSIBLE_INVENTORY_CACHE_PLUGIN
+          ini:
+          - key: fact_caching
+            section: defaults
+          - key: cache_plugin
+            section: inventory
+
+        type: str
+
+- cache_prefix
+        Prefix to use for cache plugin files/tables
+        [Default: ansible_inventory_]
+        set_via:
+          env:
+          - name: ANSIBLE_CACHE_PLUGIN_PREFIX
+          - name: ANSIBLE_INVENTORY_CACHE_PLUGIN_PREFIX
+          ini:
+          - key: fact_caching_prefix
+            section: default
+          - key: cache_prefix
+            section: inventory
+
+
+- cache_timeout
+        Cache duration in seconds
+        [Default: 3600]
+        set_via:
+          env:
+          - name: ANSIBLE_CACHE_PLUGIN_TIMEOUT
+          - name: ANSIBLE_INVENTORY_CACHE_TIMEOUT
+          ini:
+          - key: fact_caching_timeout
+            section: defaults
+          - key: cache_timeout
+            section: inventory
+
+        type: int
+
+- compose
+        Create vars from jinja2 expressions.
+        [Default: {}]
+        type: dict
+
+- filters
+        List of jinja2 expressions to perform client-side hosts filtering.
+        Possible fields are described here https://cloud.yandex.com/docs/compute/api-ref/Instance/list.
+        When overriding this option don't forget to explicitly include default value to your rules (if you need it).
+        [Default: status == 'RUNNING']
+        type: list
+
+= folders
+        List of Yandex.Cloud folder ID's to list instances from.
+
+        type: list
+
+- groups
+        Add hosts to group based on Jinja2 conditionals.
+        [Default: {}]
+        type: dict
+
+- hostnames
+        The list of methods for determining the hostname.
+        Several methods can be tried one by one. Until successful hostname detection.
+        Currently supported methods are 'public_ip', 'private_ip' and 'fqdn'.
+        Any other value is parsed as a jinja2 expression.
+        [Default: ['public_ip', 'private_ip', 'fqdn']]
+        type: list
+
+- keyed_groups
+        Add hosts to group based on the values of a variable.
+        [Default: []]
+        type: list
+
+- oauth_token
+        OAUTH token string. See https://cloud.yandex.com/docs/iam/concepts/authorization/oauth-token.
+        [Default: (null)]
+        set_via:
+          env:
+          - name: YC_ANSIBLE_OAUTH_TOKEN
+
+        type: string
+
+= plugin
+        The name of this plugin, it should always be set to `community.general.yc_compute' for this plugin to recognize it as it's
+        own.
+        (Choices: community.general.yc_compute)
+        type: str
+
+- remote_filter
+        Sets `filter' parameter for `list' API call.
+        Currently you can use filtering only on the Instance.name field.
+        See https://cloud.yandex.com/docs/compute/api-ref/Instance/list.
+        Use `filters' option for more flexible client-side filtering.
+        [Default: (null)]
+        type: string
+
+- service_account_contents
+        Similar to service_account_file. Should contain raw contents of the Service Account JSON file.
+        [Default: (null)]
+        set_via:
+          env:
+          - name: YC_ANSIBLE_SERVICE_ACCOUNT_CONTENTS
+
+        type: string
+
+- service_account_file
+        The path of a Service Account JSON file. Must be set if auth_kind is "serviceaccountfile".
+        Service Account JSON file can be created by `yc' tool:
+        `yc iam key create --service-account-name my_service_account --output my_service_account.json'
+        [Default: (null)]
+        set_via:
+          env:
+          - name: YC_ANSIBLE_SERVICE_ACCOUNT_FILE
+
+        type: path
+
+- strict
+        If `yes' make invalid entries a fatal error, otherwise skip and continue.
+        Since it is possible to use facts in the expressions they might not always be available and we ignore those errors by
+        default.
+        [Default: False]
+        type: bool
+
+
+REQUIREMENTS:  yandexcloud==0.10.1
+
+NAME: yc_compute
+
+PLUGIN_TYPE: inventory
+
+EXAMPLES:
+
+plugin: community.general.yc_compute
+folders:  # List inventory hosts from these folders.
+  - <your_folder_id>
+filters:
+  - status == 'RUNNING'
+  - labels['role'] == 'db'
+auth_kind: serviceaccountfile
+service_account_file: /path/to/your/service/account/file.json
+hostnames:
+  - fqdn  # Use FQDN for inventory hostnames.
+# You can also format hostnames with jinja2 expressions like this
+# - "{{id}}_{{name}}"
+
+compose:
+  # Set ansible_host to the Public IP address to connect to the host.
+  # For Private IP use "network_interfaces[0].primary_v4_address.address".
+  ansible_host: network_interfaces[0].primary_v4_address.one_to_one_nat.address
+
+keyed_groups:
+  # Place hosts in groups named by folder_id.
+  - key: folder_id
+    prefix: ''
+    separator: ''
+  # Place hosts in groups named by value of labels['group'].
+  - key: labels['group']
+
+groups:
+  # Place hosts in 'ssd' group if they have appropriate disk_type label.
+  ssd: labels['disk_type'] == 'ssd'
+```
+
+Видим, что плагин конфигурируется через YAML файл, условие - он должен оканчиваться на yc_compute.(yml|yaml) или на yc.(yml|yaml). Обязательные опции указаны знаком '='. Готовим файл `yc.yml`:
+```yaml
+plugin: yc_compute
+
+folders:
+  - ******************pp
+
+auth_kind: serviceaccountfile
+
+service_account_file: ./ansible-key.json
+
+hostnames:
+  - fqdn
+
+compose:
+  ansible_host: network_interfaces[0].primary_v4_address.one_to_one_nat.address
+
+keyed_groups:
+  - key: labels['group']
+    prefix: ''
+    separator: ''
+```
+
+Заметка про `keyed_groups`: группы хостов создаём на основании меток у виртуальных машин, в нашем случае - метка `group` формирует имя группы хостов.
+
+Прописываем его в конфигурации `ansible.cfg`:
+```ini
+[defaults]
+inventory = ./yc.yml
+remote_user = ubuntu
+private_key_file = ~/.ssh/ubuntu
+host_key_checking = False
+retry_files_enabled = False
+
+[inventory]
+enable_plugins = yc_compute
+```
+
+Проверяем работу `ansible-inventory --list`:
+```json
+{
+    "_app": {
+        "hosts": [
+            "fhmj1hed13lv03jtck88.auto.internal"
+        ]
+    },
+    "_db": {
+        "hosts": [
+            "fhmckjssuf6p608vas5u.auto.internal"
+        ]
+    },
+    "_meta": {
+        "hostvars": {
+            "fhmckjssuf6p608vas5u.auto.internal": {
+                "ansible_host": "51.250.94.221"
+            },
+            "fhmj1hed13lv03jtck88.auto.internal": {
+                "ansible_host": "51.250.92.123"
+            }
+        }
+    },
+    "all": {
+        "children": [
+            "_app",
+            "_db",
+            "ungrouped"
+        ]
+    }
+}
+```
+
+**Результат №08-2:**
+Мы добыли из репозитория плагин для динамического инвентори Yandex.Cloud, подключили его, установили зависимости, создали файл конфигурации.
+Всё работает.
+
+---
+
+**Задание №08-3:**
+1. Заменить скрипты, используемые `packer` на плэйбуки `ansible`.
+2. Заменить скрипты в секциях `provisioners` файлов конфигурации `packer` на `ansible`.
+
+
+**Решение №08-3:**
+Плэйбук `packer_app.yml` для установки `ruby` и `bundler` будет выглядеть так:
+```yaml
+- name: Install base for application deploy
+  hosts: all
+  become: true
+  tasks:
+    - name: Install packages for app base
+      apt:
+        name: ['apt-transport-https', 'ca-certificates', 'ruby-full', 'ruby-bundler', 'build-essential', 'git']
+        state: present
+        update_cache: yes
+      retries: 5
+      delay: 20
+
+    - name: Remove useless packages from the cache
+      apt:
+        autoclean: yes
+
+    - name: Remove dependencies that are no longer required
+      apt:
+        autoremove: yes
+```
+
+Подключать репозитории мы не будем, т.к. есть проблемы с доступом к ним. При желании можно почитать документацию на [apt_key](https://docs.ansible.com/ansible/latest/collections/ansible/builtin/apt_key_module.html) и [apt_repository](https://docs.ansible.com/ansible/latest/collections/ansible/builtin/apt_repository_module.html).
+Плэйбук `packer_db.yml` для установки `mongodb` и включения сервиса будет выглядеть так:
+```yaml
+- name: Install base for database server
+  hosts: all
+  become: true
+  tasks:
+    - name: Install mongodb
+      apt:
+        name: mongodb
+        state: present
+        update_cache: yes
+      retries: 5
+      delay: 20
+
+    - name: Remove useless packages from the cache
+      apt:
+        autoclean: yes
+
+    - name: Remove dependencies that are no longer required
+      apt:
+        autoremove: yes
+
+    - name: Enable mongodb service
+      systemd:
+        name: mongodb
+        enabled: yes
+```
+
+Заменим `provisioners` с `shell` на `ansible`.
+Без указания `"use_proxy": false` сборка образа падала с такой ошибкой:
+```console
+    yandex: fatal: [default]: UNREACHABLE! => {"changed": false, "msg": "Failed to connect to the host via ssh: Unable to negotiate with 127.0.0.1 port 46297: no matching host key type found. Their offer: ssh-rsa", "unreachable": true}
+```
+
+Содержимое `packer/app.json`:
+```json
+{
+    "variables": {
+        "mv_service_account_key_file": "",
+        "mv_folder_id": "",
+        "mv_source_image_family": ""
+    },
+    "builders": [
+        {
+            "type": "yandex",
+            "service_account_key_file": "{{user `mv_service_account_key_file`}}",
+            "folder_id": "{{user `mv_folder_id`}}",
+            "source_image_family": "{{user `mv_source_image_family`}}",
+            "image_name": "reddit-app-{{timestamp}}",
+            "image_family": "reddit-app",
+            "ssh_username": "ubuntu",
+            "platform_id": "standard-v1",
+            "use_ipv4_nat": "true"
+        }
+    ],
+    "provisioners": [
+        {
+            "type": "ansible",
+            "use_proxy": false,
+            "playbook_file": "ansible/packer_app.yml"
+        }
+    ]
+}
+```
+
+Содержимое `packer/db.json`:
+```json
+{
+    "variables": {
+        "mv_service_account_key_file": "",
+        "mv_folder_id": "",
+        "mv_source_image_family": ""
+    },
+    "builders": [
+        {
+            "type": "yandex",
+            "service_account_key_file": "{{user `mv_service_account_key_file`}}",
+            "folder_id": "{{user `mv_folder_id`}}",
+            "source_image_family": "{{user `mv_source_image_family`}}",
+            "image_name": "reddit-db-{{timestamp}}",
+            "image_family": "reddit-db",
+            "ssh_username": "ubuntu",
+            "platform_id": "standard-v1",
+            "use_ipv4_nat": "true"
+        }
+    ],
+    "provisioners": [
+        {
+            "type": "ansible",
+            "use_proxy": false,
+            "playbook_file": "ansible/packer_db.yml"
+        }
+    ]
+}
+```
+
+Командой `packer build -var-file=./packer/variables.json ./packer/app.json` собираем образ:
+```console
+yandex: output will be in this color.
+
+==> yandex: Creating temporary RSA SSH key for instance...
+==> yandex: Using as source image: fd88e9eo161152ui8uji (name: "ubuntu-16-04-lts-v20220711", family: "ubuntu-1604-lts")
+==> yandex: Creating network...
+==> yandex: Creating subnet in zone "ru-central1-a"...
+==> yandex: Creating disk...
+==> yandex: Creating instance...
+==> yandex: Waiting for instance with id fhmrl623o75f5heuarqh to become active...
+    yandex: Detected instance IP: 51.250.69.166
+==> yandex: Using SSH communicator to connect: 51.250.69.166
+==> yandex: Waiting for SSH to become available...
+==> yandex: Connected to SSH!
+==> yandex: Provisioning with Ansible...
+    yandex: Not using Proxy adapter for Ansible run:
+    yandex:     Using ssh keys from Packer communicator...
+==> yandex: Executing Ansible: ansible-playbook -e packer_build_name="yandex" -e packer_builder_type=yandex --ssh-extra-args '-o IdentitiesOnly=yes' -e ansible_ssh_private_key_file=/tmp/ansible-key2760680716 -i /tmp/packer-provisioner-ansible186362353 /home/ubuntu/r2d2k_infra/ansible/packer_app.yml
+    yandex:
+    yandex: PLAY [Install base for application deploy] *************************************
+    yandex:
+    yandex: TASK [Gathering Facts] *********************************************************
+    yandex: ok: [default]
+    yandex:
+    yandex: TASK [Install packages for app base] *******************************************
+    yandex: changed: [default]
+    yandex:
+    yandex: TASK [Remove useless packages from the cache] **********************************
+    yandex: changed: [default]
+    yandex:
+    yandex: TASK [Remove dependencies that are no longer required] *************************
+    yandex: ok: [default]
+    yandex:
+    yandex: PLAY RECAP *********************************************************************
+    yandex: default                    : ok=4    changed=2    unreachable=0    failed=0    skipped=0    rescued=0    ignored=0
+    yandex:
+==> yandex: Stopping instance...
+==> yandex: Deleting instance...
+    yandex: Instance has been deleted!
+==> yandex: Creating image: reddit-app-1658080151
+==> yandex: Waiting for image to complete...
+==> yandex: Success image create...
+==> yandex: Destroying subnet...
+    yandex: Subnet has been deleted!
+==> yandex: Destroying network...
+    yandex: Network has been deleted!
+==> yandex: Destroying boot disk...
+    yandex: Disk has been deleted!
+Build 'yandex' finished after 3 minutes 38 seconds.
+
+==> Wait completed after 3 minutes 38 seconds
+
+==> Builds finished. The artifacts of successful builds are:
+--> yandex: A disk image was created: reddit-app-1658080151 (id: fd8r6j5t7u0aqioi5ara) with family name reddit-app
+```
+
+Второй образ собираем аналогично.
+
+Заменим в `terraform/stage/terraform.tfvars` идентификаторы дисковых образов на созданные во время выполнения предыдущего шага и запустим формирование инфраструктуры `terraform apply`:
+```console
+...
+
+Apply complete! Resources: 4 added, 0 changed, 0 destroyed.
+
+Outputs:
+
+external_ip_address_app = 51.250.95.167
+external_ip_address_db = 51.250.95.188
+``` 
+
+Перейдём в папку с `ansible`, проверим, как отрабатывает формирование динамического инвентори `ansible-inventory --list`:
+```json
+{
+    "_meta": {
+        "hostvars": {
+            "fhm5kep6aqr2gait60hj.auto.internal": {
+                "ansible_host": "51.250.95.188"
+            },
+            "fhmqp579sm5grsc508c8.auto.internal": {
+                "ansible_host": "51.250.95.167"
+            }
+        }
+    },
+    "all": {
+        "children": [
+            "app",
+            "db",
+            "ungrouped"
+        ]
+    },
+    "app": {
+        "hosts": [
+            "fhmqp579sm5grsc508c8.auto.internal"
+        ]
+    },
+    "db": {
+        "hosts": [
+            "fhm5kep6aqr2gait60hj.auto.internal"
+        ]
+    }
+}
+```
+
+С инвентори всё в порядке, разворачиваем приложение `ansible-playbook site.yml`:
+```console
+
+PLAY [Install Python] ****************************************************************************************************
+
+TASK [Install Pyhon use raw module] **************************************************************************************
+changed: [fhm5kep6aqr2gait60hj.auto.internal]
+changed: [fhmqp579sm5grsc508c8.auto.internal]
+
+PLAY [Configure MongoDB] *************************************************************************************************
+
+TASK [Gathering Facts] ***************************************************************************************************
+ok: [fhm5kep6aqr2gait60hj.auto.internal]
+
+TASK [Change mongodb config file] ****************************************************************************************
+changed: [fhm5kep6aqr2gait60hj.auto.internal]
+
+RUNNING HANDLER [restart mongodb] ****************************************************************************************
+changed: [fhm5kep6aqr2gait60hj.auto.internal]
+
+PLAY [Configure App] *****************************************************************************************************
+
+TASK [Gathering Facts] ***************************************************************************************************
+ok: [fhmqp579sm5grsc508c8.auto.internal]
+
+TASK [Add unit file for Puma] ********************************************************************************************
+changed: [fhmqp579sm5grsc508c8.auto.internal]
+
+TASK [Add config for DB connection] **************************************************************************************
+changed: [fhmqp579sm5grsc508c8.auto.internal]
+
+TASK [enable puma] *******************************************************************************************************
+changed: [fhmqp579sm5grsc508c8.auto.internal]
+
+RUNNING HANDLER [reload puma] ********************************************************************************************
+changed: [fhmqp579sm5grsc508c8.auto.internal]
+
+PLAY [Deploy App] ********************************************************************************************************
+
+TASK [Gathering Facts] ***************************************************************************************************
+ok: [fhmqp579sm5grsc508c8.auto.internal]
+
+TASK [Install git] *******************************************************************************************************
+[WARNING]: Updating cache and auto-installing missing dependency: python-apt
+ok: [fhmqp579sm5grsc508c8.auto.internal]
+
+TASK [Fetch the latest version of application code] **************************************************************************************************************************
+changed: [fhmqp579sm5grsc508c8.auto.internal]
+
+TASK [Bundle install] ****************************************************************************************************
+changed: [fhmqp579sm5grsc508c8.auto.internal]
+
+RUNNING HANDLER [reload puma] ********************************************************************************************
+changed: [fhmqp579sm5grsc508c8.auto.internal]
+
+PLAY RECAP ***************************************************************************************************************
+fhm5kep6aqr2gait60hj.auto.internal : ok=4    changed=3    unreachable=0    failed=0    skipped=0    rescued=0    ignored=0
+fhmqp579sm5grsc508c8.auto.internal : ok=11   changed=8    unreachable=0    failed=0    skipped=0    rescued=0    ignored=0
+```
+
+Плэйбук отработал без ошибок, проверяем браузером, доступно ли приложение по адресу http://51.250.95.167:9292.
+Ради интереса можем проверить доступ через консольный браузер `lynx`, так не придётся вставлять сюда картинки)
+```console
+                                                                       Monolith Reddit :: All posts
+   (BUTTON) Monolith Reddit
+     * Sign up
+     * Login
+
+   Can't show blog posts, some problems with database. Refresh?
+
+Menu
+
+     * All posts
+     * New post
+```
+
+Проблема: приложение запущено, но база данных недоступна. Правильно, мы же всегда задавали руками переменную `db_host` в плэйбуке `app.yml`. 
+Сделаем так: при выполнении плэйбука настройки сервера баз данных мы создадим хост и сохраним в него переменную, содержащую IP адрес сервера.
+При выполнении настроек сервера приложений достанем эту переменную из хоста и подставим в конфигурацию сервиса `puma`. 
+Это сработает при последовательном выполнении плэйбуков.
+
+Файл `db.yml`:
+```yaml
+- name: Configure MongoDB
+  hosts: db
+  become: true
+  vars:
+    mongo_bind_ip: 0.0.0.0
+  tasks:
+    - name: Change mongodb config file
+      template:
+        src: templates/mongodb.conf.j2
+        dest: /etc/mongodb.conf
+        mode: 0644
+      notify: restart mongodb
+
+    - name: Store db_host to fake host
+      add_host:
+        name: "var_holder"
+        db_host_ip: "{{ ansible_facts.default_ipv4.address }}"
+
+  handlers:
+  - name: restart mongodb
+    service: name=mongodb state=restarted
+```
+
+Файл `app.yml`:
+```yaml
+- name: Configure App
+  hosts: app
+  become: true
+  vars:
+   db_host: "{{ hostvars['var_holder']['db_host_ip'] }}"
+  tasks:
+    - name: Add unit file for Puma
+      copy:
+        src: files/puma.service
+        dest: /etc/systemd/system/puma.service
+      notify: reload puma
+
+    - name: Add config for DB connection
+      template:
+        src: templates/db_config.j2
+        dest: /home/ubuntu/db_config
+        owner: ubuntu
+        group: ubuntu
+      notify: reload puma
+
+    - name: enable puma
+      systemd: name=puma enabled=yes
+
+  handlers:
+  - name: reload puma
+    systemd: name=puma state=restarted
+```
+
+Применяем, проверяем, всё работает.
+
+**Результат №08-3:**
+Мы заменили bash скрипты настройки `packer` на плэйбуки `ansible`, создали инфраструктуру и настроили приложение.
+
+Оказалось, что это не конец истории. Проверки при сдаче домашнего задания не проходят, т.к. `packer` в тестовом окружении старый и не в курсе про параметр `use_proxy`. Что ж, будем разбираться. 
+
+Текст ошибки: _Failed to connect to the host via ssh: Unable to negotiate with 127.0.0.1 port 46297: no matching host key type found. Their offer: ssh-rsa_.
+Судя по всему, все попытки подключения отвергаются, т.к. "удалённый хост" предлагает использовать ключи ssh-rsa, а мы отказываемся. Для подключения `ansible` использует локальную версию `ssh`, у нас установлена _OpenSSH_8.9p1 Ubuntu-3, OpenSSL 3.0.2 15 Mar 2022_. Находим интересную [вещь](https://www.openssh.com/txt/release-8.2). Причина наших проблем: we will be disabling the "ssh-rsa" public key signature algorithm that depends on SHA-1 by default in a near-future release.
+
+Чтобы включить этот алгоритм, мы должны внести изменения в локальный конфиг `ssh`.
+```console
+> cat ~/.ssh/config
+Host *
+    HostkeyAlgorithms +ssh-rsa
+    PubkeyAcceptedAlgorithms +ssh-rsa
+```
+
+Убираем из конфигурации `packer` параметр `use_proxy`, проверяем сборку образа, всё проходит успешно.
+

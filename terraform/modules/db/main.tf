@@ -5,6 +5,7 @@ resource "yandex_compute_instance" "db" {
 
   labels = {
     tags = "reddit-db-${var.environment}"
+    group = "db"
   }
 
   resources {

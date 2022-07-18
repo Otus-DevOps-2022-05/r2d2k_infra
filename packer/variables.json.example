@@ -1,5 +1,5 @@
 {
-    "mv_service_account_key_file": "key.json",
+    "mv_service_account_key_file": "./packer/key.json",
     "mv_folder_id": "WYDIWYG",
     "mv_source_image_family": "geeeen-toooo",
     "mv_image_family": "reddit-full"
