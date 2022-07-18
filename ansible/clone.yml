@@ -1,0 +1,14 @@
+---
+- name: Clone
+  hosts: app
+  tasks:
+    - name: Install git package
+      package:
+        name: git
+        state: present
+      become: yes
+
+    - name: Clone repo
+      git:
+        repo: https://github.com/express42/reddit.git
+        dest: /home/ubuntu/reddit

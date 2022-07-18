@@ -6,4 +6,5 @@
 .terraform/
 terraform-key.json
 packer-key.json
+ansible-key.json
 .terraform.lock.hcl

@@ -9,6 +9,7 @@
 - [04 - Packer](#04---packer)
 - [05 - Terraform-1](#05---terraform-1)
 - [06 - Terraform-2](#06---terraform-2)
+- [07 - Ansible-1](#07---ansible-1)
 
 <!-- /MarkdownTOC -->
 
@@ -2149,5 +2150,618 @@ Success! The configuration is valid.
 ```
 
 Применяем, всё работает.
+
+---
+
+## 07 - Ansible-1
+
+**Задание №07-1:** Знакомство с Ansible, часть 1
+
+**Решение №07-1:**
+Исходные данные:
+```console
+> cat /etc/os-release
+PRETTY_NAME="Ubuntu 22.04 LTS"
+NAME="Ubuntu"
+VERSION_ID="22.04"
+VERSION="22.04 LTS (Jammy Jellyfish)"
+VERSION_CODENAME=jammy
+...
+
+> python3 --version
+Python 3.10.4
+
+> ansible --version
+ansible 2.10.8
+
+> terraform version
+Terraform v0.12.30
+```
+
+Создаём новую ветку:
+```console
+~/r2d2k_infra (main)> git checkout -b ansible-1
+Switched to a new branch 'ansible-1'
+~/r2d2k_infra (ansible-1)>
+```
+
+На базе предыдущего занятия по `terraform` создаём две виртуальные машины, сервер приложений и сервер БД. Работаем в окружении `stage`, через переменную `deploy_needed = false` отключаем установку и настройку приложений. После `terraform apply` получим два внешних адреса.
+```console
+> terraform apply
+...
+
+Outputs:
+
+external_ip_address_app = 51.250.90.126
+external_ip_address_db = 51.250.87.190
+```
+
+Создаём файл `ansible/inventory`, в нём хранится список серверов и параметры подключения к ним.
+```console
+> cat inventory
+appserver ansible_host=51.250.90.126 ansible_user=ubuntu ansible_ssh_private_key_file=~/.ssh/ubuntu
+```
+
+Проверяем, что файл создан корректно и у нас есть возможность выполнять команды на удалённом хосте. Один из самых простых модулей `ansible` это `ping`, он отвечает `pong`, если у нас есть доступ к удалённому серверу. Модуль выполняется на удалённом сервере при помощи установленного там `python`.
+```console
+> ansible -i ./inventory appserver -m ping
+appserver | SUCCESS => {
+    "ansible_facts": {
+        "discovered_interpreter_python": "/usr/bin/python3"
+    },
+    "changed": false,
+    "ping": "pong"
+}
+```
+
+Ответ получен, идём дальше. Добавим в `inventory` сервер СУБД.
+```console
+> cat inventory
+appserver ansible_host=51.250.90.126 ansible_user=ubuntu ansible_ssh_private_key_file=~/.ssh/ubuntu
+dbserver  ansible_host=51.250.87.190 ansible_user=ubuntu ansible_ssh_private_key_file=~/.ssh/ubuntu
+```
+
+Проверим связь со всеми хостами. **all** - виртуальная группа, содержит все хосты, описанные в `inventory`.
+```console
+> ansible -i ./inventory all -m ping
+appserver | SUCCESS => {
+    "ansible_facts": {
+        "discovered_interpreter_python": "/usr/bin/python3"
+    },
+    "changed": false,
+    "ping": "pong"
+}
+dbserver | SUCCESS => {
+    "ansible_facts": {
+        "discovered_interpreter_python": "/usr/bin/python3"
+    },
+    "changed": false,
+    "ping": "pong"
+}
+```
+
+Часть параметров можно вынести в файл настроек `ansible.cfg`. Выносим, в `inventory` оставляем только алиасы хостов и их адреса.
+```console
+> cat ansible.cfg
+[defaults]
+inventory = ./inventory
+remote_user = ubuntu
+private_key_file = ~/.ssh/ubuntu
+host_key_checking = False
+retry_files_enabled = False
+
+> cat inventory
+appserver ansible_host=51.250.90.126
+dbserver  ansible_host=51.250.87.190
+
+> ansible all -m ping
+dbserver | SUCCESS => {
+    "ansible_facts": {
+        "discovered_interpreter_python": "/usr/bin/python3"
+    },
+    "changed": false,
+    "ping": "pong"
+}
+appserver | SUCCESS => {
+    "ansible_facts": {
+        "discovered_interpreter_python": "/usr/bin/python3"
+    },
+    "changed": false,
+    "ping": "pong"
+}
+```
+
+Проверим модуль `command`, выполним на удалённых серверах команду `uptime`.
+```console
+> ansible all -m command -a uptime
+appserver | CHANGED | rc=0 >>
+ 18:33:47 up  1:23,  1 user,  load average: 0.08, 0.02, 0.01
+dbserver | CHANGED | rc=0 >>
+ 18:33:47 up  1:23,  1 user,  load average: 0.00, 0.00, 0.00
+```
+
+Для удобства работы можно группировать хосты, создадим две группы `app` и `db`.
+```console
+> cat inventory
+[app]
+appserver ansible_host=51.250.90.126
+
+[db]
+dbserver  ansible_host=51.250.87.190
+```
+
+Проверяем работу.
+```console
+> ansible app -m command -a uptime
+appserver | CHANGED | rc=0 >>
+ 18:38:07 up  1:27,  1 user,  load average: 0.00, 0.00, 0.00
+
+> ansible db -m ping
+dbserver | SUCCESS => {
+    "ansible_facts": {
+        "discovered_interpreter_python": "/usr/bin/python3"
+    },
+    "changed": false,
+    "ping": "pong"
+}
+```
+
+Можно использовать YAML для файлов `inventory`, детали можно посмотреть в [официальной документации](https://docs.ansible.com/ansible/latest/user_guide/intro_inventory.html). В итоге наш файл `inventory.yaml` примет такой вид:
+```yaml
+all:
+  children:
+    app:
+      hosts:
+        appserver:
+          ansible_host: 51.250.90.126
+    db:
+      hosts:
+        dbserver:
+          ansible_host: 51.250.87.190
+```
+
+В настройках `ansible` укажем новый файл `inventory`:
+```console
+> cat ansible.cfg
+[defaults]
+inventory = ./inventory.yaml
+remote_user = ubuntu
+private_key_file = ~/.ssh/ubuntu
+host_key_checking = False
+retry_files_enabled = False
+```
+
+Напишем простой `playbook` для клонирования репозитория приложения `clone.yaml`:
+```yaml
+- name: Clone
+  hosts: app
+  tasks:
+    - name: Clone repo
+      git:
+        repo: https://github.com/express42/reddit.git
+        dest: /home/ubuntu/reddit
+``` 
+
+Выполним его:
+```console
+> ansible-playbook clone.yaml
+
+PLAY [Clone] ********************************************************************
+
+TASK [Gathering Facts] **********************************************************
+ok: [appserver]
+
+TASK [Clone repo] ***************************************************************
+fatal: [appserver]: FAILED! => {"changed": false, "msg": "Failed to find required
+executable git in paths: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:
+/bin:/usr/games:/usr/local/games:/snap/bin"}
+
+PLAY RECAP **********************************************************************
+appserver                  : ok=1    changed=0    unreachable=0    failed=1    skipped=0    rescued=0    ignored=0
+```
+
+Всё сломалось, потому что у нас нет `git` на сервере приложений. Не проблема, установим. Идём на страницу с описанием [модулей](https://docs.ansible.com/ansible/latest/collections/ansible/builtin/index.html), ищем подходящий, читаем описание, добавляем задачу установки `git` с [повышенными привилегиями](https://docs.ansible.com/ansible/latest/user_guide/become.html):
+```yaml
+- name: Clone
+  hosts: app
+  tasks:
+    - name: Install git package
+      ansible.builtin.package:
+        name: git
+        state: present
+      become: yes
+
+    - name: Clone repo
+      git:
+        repo: https://github.com/express42/reddit.git
+        dest: /home/ubuntu/reddit
+```
+
+Проверяем:
+```console
+> ansible-playbook clone.yaml
+
+PLAY [Clone] *****************************************************************************************************
+
+TASK [Gathering Facts] *******************************************************************************************
+ok: [appserver]
+
+TASK [Install git package] ***************************************************************************************
+changed: [appserver]
+
+TASK [Clone repo] ************************************************************************************************
+ok: [appserver]
+
+PLAY RECAP *******************************************************************************************************
+appserver                  : ok=3    changed=1    unreachable=0    failed=0    skipped=0    rescued=0    ignored=0
+```
+
+Запускаем второй раз, изменений нет, всё работает, как задумано.
+```console
+> ansible-playbook clone.yaml
+
+PLAY [Clone] *****************************************************************************************************
+
+TASK [Gathering Facts] *******************************************************************************************
+ok: [appserver]
+
+TASK [Install git package] ***************************************************************************************
+ok: [appserver]
+
+TASK [Clone repo] ************************************************************************************************
+ok: [appserver]
+
+PLAY RECAP *******************************************************************************************************
+appserver                  : ok=3    changed=0    unreachable=0    failed=0    skipped=0    rescued=0    ignored=0
+```
+
+В задании нас просят сделать `ansible app -m command -a 'rm -rf ~/reddit'`, затем выполнить `ansible-playbook clone.yaml` и обьяснить результат. Первая команда удалит локальную копию репозитория приложения, которую мы сделали на предыдущем шаге. Запуск второй команды заново получит и сохранит локально копию приложения. Последующие запуски `ansible-playbook clone.yaml` не вызовут никаких изменений, т.к. локальная копия репозитория уже существует на диске.
+
+**Результат №07-1:**
+ - Создано локальное окружение для работы с `ansible`
+ - Создан статический `inventory` в двух вариантах: обычный текстовый и в формате YAML
+ - Проверено выполнение команд на удалённых серверах при помощи различных модулей `ansible`
+ - Написан `playbook` для получения локальной копии приложения из удалённого репозитория
+
+---
+
+**Задание №07-2:** Для описания инвентори Ansible использует форматы файлов INI и YAML. Также поддерживается формат JSON. При этом, Ansible поддерживает две различных схемы JSON-inventory: одна является прямым отображением YAML-формата (можно сделать через конвертер YAML <-> JSON), а другая используется для динамического inventory. С небольшими ухищрениями можно заставить Ansible использовать вторую схему и для статических JSON-файлов. Попробуем это сделать...
+
+1. Ознакомьтесь с [Динамическое инвентори в Ansible](https://nklya.medium.com/динамическое-инвентори-в-ansible-9ee880d540d6).
+2. Создайте файл inventory.json в формате, описанном в п.1 для нашей ya.cloud-инфраструктуры и скрипт для работы с ним.
+3. Добейтесь успешного выполнения команды ansible all -m ping и опишите шаги в README.
+4. Добавьте параметры в файл ansible.cfg для работы с инвентори в формате JSON.
+5. Если вы разобрались с отличиями схем JSON для динамического и статического инвентори, также добавьте описание в README
+
+**Решение №07-2:**
+
+Динамическое инвентори - это скрипт, который добывает информацию о хостах из какого-то источника и отдаёт её в формате JSON. При запуске с параметром `--list` скрипт должен вернуть список хостов с их параметрами. При запуске с параметром `--host <hostname>` скрипт может вернуть параметры этого хоста, ну или вернуть пустой список.
+
+Наш исходный файл инвентори выглядит так:
+```yaml
+all:
+  children:
+    app:
+      hosts:
+        appserver:
+          ansible_host: 51.250.90.126
+    db:
+      hosts:
+        dbserver:
+          ansible_host: 51.250.87.190
+```
+
+Если мы переведём его в формат JSON, то получим `inventory.json`:
+```json
+{
+    "all": {
+        "children": {
+            "app": {
+                "hosts": {
+                    "appserver": {
+                        "ansible_host": "51.250.90.126"
+                    }
+                }
+            },
+            "db": {
+                "hosts": {
+                    "dbserver": {
+                        "ansible_host": "51.250.87.190"
+                    }
+                }
+            }
+        }
+    }
+}
+```
+
+Тестовый запуск c инвентори такого формата проходит успешно:
+```console
+> ansible -i ./inventory.json all -m ping
+appserver | SUCCESS => {
+    "ansible_facts": {
+        "discovered_interpreter_python": "/usr/bin/python3"
+    },
+    "changed": false,
+    "ping": "pong"
+}
+dbserver | SUCCESS => {
+    "ansible_facts": {
+        "discovered_interpreter_python": "/usr/bin/python3"
+    },
+    "changed": false,
+    "ping": "pong"
+}
+```
+
+Читаем [описание](https://nklya.medium.com/динамическое-инвентори-в-ansible-9ee880d540d6) динамического инвентори, видим, что он должен вернуть список хостов и блок `_meta`, в котором указаны переменные хостов. Для теста подготовим источник данных для скрипта динамического инвентори `inventory-src.json`:
+```json
+{
+    "app": {
+        "hosts": ["appserver"]
+    },
+    "db": {
+        "hosts": ["dbserver"]
+    },
+    "_meta": {
+        "hostvars": {
+            "appserver": {
+                "ansible_host": "51.250.90.126"
+            },
+            "dbserver": {
+                "ansible_host": "51.250.87.190"
+            }
+        }
+    }
+}
+```
+
+_Из статического инвентори можно получить внутреннее представление при помощи `ansible-inventory -i ./inventory --list`._
+
+Подготовим простой скрипт, который будет скармливать `ansible` сформированный нами файл. Обрабатывать входные параметры не будем, наша основная цель - проверить теорию на практике.
+
+Содержимое скрипта `inventory-dyn.sh`:
+```sh
+#!/bin/sh
+
+cat inventory-src.json
+```
+
+Делаем файл исполняемым `chmod +x inventory-dyn.sh` и проверяем работу "динамического" инвентори:
+```console
+> ansible -i ./inventory-dyn.sh all -m ping
+appserver | SUCCESS => {
+    "ansible_facts": {
+        "discovered_interpreter_python": "/usr/bin/python3"
+    },
+    "changed": false,
+    "ping": "pong"
+}
+dbserver | SUCCESS => {
+    "ansible_facts": {
+        "discovered_interpreter_python": "/usr/bin/python3"
+    },
+    "changed": false,
+    "ping": "pong"
+}
+```
+
+Меняем конфигурацию `ansible.cgf`, прописываем в качестве инвентори наш скрипт:
+```ini
+[defaults]
+inventory = ./inventory-dyn.sh
+remote_user = ubuntu
+private_key_file = ~/.ssh/ubuntu
+host_key_checking = False
+retry_files_enabled = False
+```
+
+Проверяем работу, запускаем `ansible` без указания инвентори:
+```console
+> ansible all -m ping
+appserver | SUCCESS => {
+    "ansible_facts": {
+        "discovered_interpreter_python": "/usr/bin/python3"
+    },
+    "changed": false,
+    "ping": "pong"
+}
+dbserver | SUCCESS => {
+    "ansible_facts": {
+        "discovered_interpreter_python": "/usr/bin/python3"
+    },
+    "changed": false,
+    "ping": "pong"
+}
+```
+
+Playbook тоже отрабатывает без ошибок:
+```console
+> ansible-playbook clone.yaml
+
+PLAY [Clone] *****************************************************************************************************
+
+TASK [Gathering Facts] *******************************************************************************************
+ok: [appserver]
+
+TASK [Install git package] ***************************************************************************************
+ok: [appserver]
+
+TASK [Clone repo] ************************************************************************************************
+ok: [appserver]
+
+PLAY RECAP *******************************************************************************************************
+appserver                  : ok=3    changed=0    unreachable=0    failed=0    skipped=0    rescued=0    ignored=0
+
+```
+
+**Результат №07-2:**
+Разобран формат динамического инвентори, подготовлен скрипт для работы с ним. Пробные запуски `ansible` отрабатывают, как положено.
+
+---
+
+Формально задание выполнено, но попробуем генерировать файл инвентори напрямую из "облака". Для этого нам нужно:
+1. Выбрать язык программирования
+2. Разобраться с API Yandex Cloud
+3. Авторизоваться в облаке
+4. Получить список запущеных машин, их имена, внешние IP адреса
+5. Сформировать JSON и вывести его на STDOUT
+6. Опционально: обрабатывать параметры `--list` и `--host <hostname>`
+
+Язык программирования: выберу `python`. Основная причина - хост, на котором мы работаем, уже подготовлен к работе с `python`, на нём `ansible` написан) Вторая причина - популярность этого языка. 
+
+Разобраться с API: идём, изучаем [документацию на облако](https://cloud.yandex.com/ru-ru/docs).
+
+Для использования API надо авторизоваться, подробности можно узнать [тут](https://cloud.yandex.ru/docs/resource-manager/api-ref/authentication). Если кратко, то нам нужно получить IAM токен и передавать его в заголовках при обращению к облаку. Получить IAM токен можно [в обмен на JWT](https://cloud.yandex.ru/docs/iam/operations/iam-token/create-for-sa#via-jwt). Для получения JWT нужен сервисный аккаунт, заведём его для `ansible` и получим ключ.
+
+Идём в консоль облака, раздел "сервисные аккаунты", добавляем аккаунт `yc-ansible` с ролью `viewer`. После создания аккаунта генерируем для него ключ `yc iam key create --service-account-name yc-ansible --output ansible-key.json`.
+
+После некоторого количества экспериментов с API получим скрипт `yc_inventory.py`:
+```python
+#!/usr/bin/env python3
+#
+# Скрипт написан в учебных целях, содержит ряд допущений
+# Скрипт не принимает и не обрабатывает параметры командной строки
+# Для работы скрипта нужно указать ниже параметры folder_id и sa_key_filename
+# Группы хостов создаются из тегов хоста, т.е. у хоста должен быть только один тег и он должен быть задан в виде строки
+# У каждого из хостов должен быть хотя бы один внешний IP адрес
+#
+
+import json
+from urllib import response
+import requests
+import jwt
+import time
+
+# Блок переменных, меняем на свои значения
+folder_id = '******************pp'
+sa_key_filename = 'ansible-key.json'
+
+# Адреса Яндекса, не трогаем
+url_compute_instances = 'https://compute.api.cloud.yandex.net/compute/v1/instances'
+url_iam_tokens = 'https://iam.api.cloud.yandex.net/iam/v1/tokens'
+
+# Чиитаем из файла ключа параметры для создания JWT
+with open(sa_key_filename) as sa_key_file:
+  sa_key = json.load(sa_key_file)
+
+# Готовим данные для JWT
+now = int(time.time())
+
+payload = {
+  'aud': url_iam_tokens,
+  'iss': sa_key['service_account_id'],
+  'iat': now,
+  'exp': now + 360
+}
+
+encoded_token = jwt.encode(
+  payload,
+  sa_key['private_key'],
+  algorithm = 'PS256',
+  headers = {'kid': sa_key['id']}
+)
+
+# JWT готов
+payload = {'jwt': encoded_token}
+
+# Запрашиваем IAM токен
+req = requests.post(url_iam_tokens, json = payload)
+iam_token = req.json()['iamToken']
+
+# Используя IAM токен получаем список машин
+payload = {'folder_id': folder_id}
+headers = {'Authorization': 'Bearer ' + iam_token}
+req = requests.get(url_compute_instances, json = payload, headers = headers)
+response_json = req.json()
+
+# Оформляем inventory
+inventory = {}
+inventory['_meta'] = {}
+inventory['_meta']['hostvars'] = {}
+
+for instance in response_json['instances']:
+    i_name = instance['name']
+    i_fqdn = instance['fqdn']
+    i_group = instance['labels']['tags']
+    i_ext_ip = instance['networkInterfaces'][0]['primaryV4Address']['oneToOneNat']['address']
+    ansible_vars = {}
+    ansible_vars['ansible_host'] = i_ext_ip
+    inventory['_meta']['hostvars'][i_fqdn] = ansible_vars
+    if not i_group in inventory:
+        inventory[i_group] = {}
+        inventory[i_group]['hosts'] = []
+        inventory[i_group]['hosts'].append(i_fqdn)
+    else:
+        inventory[i_group]['hosts'].append(i_fqdn)
+       
+# Выводим инвентори в формате JSON
+print(json.dumps(inventory, indent=4))
+```
+
+Проверим его работу:
+```console
+> ansible-inventory -i ./yc-inventory.py --list
+{
+    "_meta": {
+        "hostvars": {
+            "fhm24rj8n23dod80i4in.auto.internal": {
+                "ansible_host": "51.250.90.126"
+            },
+            "fhmupp78em66421ll9g7.auto.internal": {
+                "ansible_host": "51.250.87.190"
+            }
+        }
+    },
+    "all": {
+        "children": [
+            "reddit-app-stage",
+            "reddit-db-stage",
+            "ungrouped"
+        ]
+    },
+    "reddit-app-stage": {
+        "hosts": [
+            "fhm24rj8n23dod80i4in.auto.internal"
+        ]
+    },
+    "reddit-db-stage": {
+        "hosts": [
+            "fhmupp78em66421ll9g7.auto.internal"
+        ]
+    }
+}
+```
+
+Обновляем конфигурацию `ansible.cfg`, указываем наш скрипт:
+```ini
+[defaults]
+inventory = ./yc-inventory.py
+remote_user = ubuntu
+private_key_file = ~/.ssh/ubuntu
+host_key_checking = False
+retry_files_enabled = False
+```
+
+Проверяем работу:
+```console
+> ansible all -m ping
+fhm24rj8n23dod80i4in.auto.internal | SUCCESS => {
+    "ansible_facts": {
+        "discovered_interpreter_python": "/usr/bin/python3"
+    },
+    "changed": false,
+    "ping": "pong"
+}
+fhmupp78em66421ll9g7.auto.internal | SUCCESS => {
+    "ansible_facts": {
+        "discovered_interpreter_python": "/usr/bin/python3"
+    },
+    "changed": false,
+    "ping": "pong"
+}
+```
+
+Всё работает.
 
 ---
