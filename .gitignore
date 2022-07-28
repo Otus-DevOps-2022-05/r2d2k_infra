@@ -9,3 +9,4 @@ packer-key.json
 ansible-key.json
 .terraform.lock.hcl
 *.retry
+jdauphant.nginx
