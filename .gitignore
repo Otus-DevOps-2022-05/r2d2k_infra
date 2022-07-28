@@ -10,3 +10,4 @@ ansible-key.json
 .terraform.lock.hcl
 *.retry
 jdauphant.nginx
+vault.key
