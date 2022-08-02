@@ -11,6 +11,7 @@
 - [06 - Terraform-2](#06---terraform-2)
 - [07 - Ansible-1](#07---ansible-1)
 - [08 - Ansible-2](#08---ansible-2)
+- [09 - Ansible-3](#09---ansible-3)
 
 <!-- /MarkdownTOC -->
 
@@ -2341,7 +2342,7 @@ retry_files_enabled = False
       git:
         repo: https://github.com/express42/reddit.git
         dest: /home/ubuntu/reddit
-``` 
+```
 
 Выполним его:
 ```console
@@ -2609,7 +2610,7 @@ appserver                  : ok=3    changed=0    unreachable=0    failed=0    s
 5. Сформировать JSON и вывести его на STDOUT
 6. Опционально: обрабатывать параметры `--list` и `--host <hostname>`
 
-Язык программирования: выберу `python`. Основная причина - хост, на котором мы работаем, уже подготовлен к работе с `python`, на нём `ansible` написан) Вторая причина - популярность этого языка. 
+Язык программирования: выберу `python`. Основная причина - хост, на котором мы работаем, уже подготовлен к работе с `python`, на нём `ansible` написан) Вторая причина - популярность этого языка.
 
 Разобраться с API: идём, изучаем [документацию на облако](https://cloud.yandex.com/ru-ru/docs).
 
@@ -2695,7 +2696,7 @@ for instance in response_json['instances']:
         inventory[i_group]['hosts'].append(i_fqdn)
     else:
         inventory[i_group]['hosts'].append(i_fqdn)
-       
+
 # Выводим инвентори в формате JSON
 print(json.dumps(inventory, indent=4))
 ```
@@ -2914,7 +2915,7 @@ fhmea26pati7cb4lckmd.auto.internal | SUCCESS => {
       tags: db-tag
 ```
 
-И шаблон `templates/mongodb.conf.j2` к нему 
+И шаблон `templates/mongodb.conf.j2` к нему
 ```yaml
 # Where and how to store data.
 storage:
@@ -3002,10 +3003,10 @@ PLAY RECAP *********************************************************************
 fhmea26pati7cb4lckmd.auto.internal : ok=3    changed=2    unreachable=0    failed=0
 ```
 
-Проверим, что у нас на хосте `db`: 
+Проверим, что у нас на хосте `db`:
 ```console
 ubuntu@fhmea26pati7cb4lckmd:~$ ss -nlp4
-Netid State      Recv-Q Send-Q Local Address:Port               Peer Address:Port    
+Netid State      Recv-Q Send-Q Local Address:Port               Peer Address:Port
 udp   UNCONN     0      0            *:68                       *:*
 udp   UNCONN     0      0            *:68                       *:*
 tcp   LISTEN     0      128          *:27017                    *:*
@@ -3214,7 +3215,7 @@ Outputs:
 
 external_ip_address_app = 51.250.94.103
 external_ip_address_db = 51.250.92.226
-``` 
+```
 
 Устанавливаем `python` на машины: `ansible-playbook install_python.yml`.
 Переписываем playbook, делим его на две части: настройка сервера БД и настройка сервера приложений, сохраняем в `reddit_app2.yml`.
@@ -3400,7 +3401,7 @@ Outputs:
 
 external_ip_address_app = 51.250.92.123
 external_ip_address_db = 51.250.94.221
-``` 
+```
 
 Обновляем переменную `db_host` в `app.yml`, проверяем `ansible-playbook site.yml --check`, запускаем `ansible-playbook site.yml`:
 ```console
@@ -3471,7 +3472,7 @@ fhmj1hed13lv03jtck88.auto.internal : ok=11   changed=9    unreachable=0    faile
 Ansible на текущий момент (07.2020) из коробки не умеет динамическую инвентаризацию в Yandex.Cloud. Нам нужно писать свои костыли, как в предыдущем ДЗ. Но если порыскать по репозиторию, то можно натолкнуться на вот [PR](https://github.com/ansible/ansible/pull/61722). Попробуйте использовать это решение для инвентаризации.
 
 **Решение №08-2:**
-Идём по ссылке, видим, что кто-то уже предложил вариант динамического инвентори, которое работает напрямую с облаком. Я случайно написал подобный скрипт в прошлом задании, но раз просят использовать этот PR, то попробуем разобраться с ним. 
+Идём по ссылке, видим, что кто-то уже предложил вариант динамического инвентори, которое работает напрямую с облаком. Я случайно написал подобный скрипт в прошлом задании, но раз просят использовать этот PR, то попробуем разобраться с ним.
 
 Смотрим, откуда приехал этот PR, клонируем его себе локально с указанием ветки: `git clone --branch yc_compute https://github.com/st8f/community.general.git`. Сам плагин находим тут: `community.general/plugins/inventory/yc_compute.py`. Читаем, изучаем. Параллельно изучаем документацию по [inventory plugins](https://docs.ansible.com/ansible/latest/plugins/inventory.html).
 
@@ -4066,7 +4067,7 @@ Outputs:
 
 external_ip_address_app = 51.250.95.167
 external_ip_address_db = 51.250.95.188
-``` 
+```
 
 Перейдём в папку с `ansible`, проверим, как отрабатывает формирование динамического инвентори `ansible-inventory --list`:
 ```json
@@ -4177,9 +4178,9 @@ Menu
      * New post
 ```
 
-Проблема: приложение запущено, но база данных недоступна. Правильно, мы же всегда задавали руками переменную `db_host` в плэйбуке `app.yml`. 
+Проблема: приложение запущено, но база данных недоступна. Правильно, мы же всегда задавали руками переменную `db_host` в плэйбуке `app.yml`.
 Сделаем так: при выполнении плэйбука настройки сервера баз данных мы создадим хост и сохраним в него переменную, содержащую IP адрес сервера.
-При выполнении настроек сервера приложений достанем эту переменную из хоста и подставим в конфигурацию сервиса `puma`. 
+При выполнении настроек сервера приложений достанем эту переменную из хоста и подставим в конфигурацию сервиса `puma`.
 Это сработает при последовательном выполнении плэйбуков.
 
 Файл `db.yml`:
@@ -4242,7 +4243,7 @@ Menu
 **Результат №08-3:**
 Мы заменили bash скрипты настройки `packer` на плэйбуки `ansible`, создали инфраструктуру и настроили приложение.
 
-Оказалось, что это не конец истории. Проверки при сдаче домашнего задания не проходят, т.к. `packer` в тестовом окружении старый и не в курсе про параметр `use_proxy`. Что ж, будем разбираться. 
+Оказалось, что это не конец истории. Проверки при сдаче домашнего задания не проходят, т.к. `packer` в тестовом окружении старый и не в курсе про параметр `use_proxy`. Что ж, будем разбираться.
 
 Текст ошибки: _Failed to connect to the host via ssh: Unable to negotiate with 127.0.0.1 port 46297: no matching host key type found. Their offer: ssh-rsa_.
 Судя по всему, все попытки подключения отвергаются, т.к. "удалённый хост" предлагает использовать ключи ssh-rsa, а мы отказываемся. Для подключения `ansible` использует локальную версию `ssh`, у нас установлена _OpenSSH_8.9p1 Ubuntu-3, OpenSSL 3.0.2 15 Mar 2022_. Находим интересную [вещь](https://www.openssh.com/txt/release-8.2). Причина наших проблем: we will be disabling the "ssh-rsa" public key signature algorithm that depends on SHA-1 by default in a near-future release.
@@ -4257,3 +4258,816 @@ Host *
 
 Убираем из конфигурации `packer` параметр `use_proxy`, проверяем сборку образа, всё проходит успешно.
 
+---
+
+## 09 - Ansible-3
+
+**Задание №09-1:** Ansible: работа с ролями и окружениями
+- Переносим созданные плейбуки в раздельные роли
+- Описываем два окружения
+- Используем коммьюнити роль nginx
+- Используем Ansible Vault для наших окружений
+
+**Решение №09-1:**
+
+Создаём папку `roles`, инициализируем два шаблона для ролей:
+```console
+> ansible-galaxy init app
+- Role app was created successfully
+> ansible-galaxy init db
+- Role db was created successfully
+
+> tree
+.
+├── app
+│   ├── defaults
+│   │   └── main.yml
+│   ├── handlers
+│   │   └── main.yml
+│   ├── meta
+│   │   └── main.yml
+│   ├── README.md
+│   ├── tasks
+│   │   └── main.yml
+│   ├── tests
+│   │   ├── inventory
+│   │   └── test.yml
+│   └── vars
+│       └── main.yml
+└── db
+    ├── defaults
+    │   └── main.yml
+    ├── handlers
+    │   └── main.yml
+    ├── meta
+    │   └── main.yml
+    ├── README.md
+    ├── tasks
+    │   └── main.yml
+    ├── tests
+    │   ├── inventory
+    │   └── test.yml
+    └── vars
+        └── main.yml
+
+14 directories, 16 files
+```
+
+Делим `db.yml` на части, выносим их в соотвествующие файлы `main.yml` роли. Переменные в `default`, обработчики в `handlers`, задачи в `tasks`.
+Аналогично разделяем `app.yml`.
+
+В ранее созданных файлах описания приложения и БД заменим задачи и обработчики ролями.
+
+Содержимое файла `app.yml`:
+```yaml
+- name: Configure App
+  hosts: app
+  become: true
+
+  vars:
+   db_host: 127.0.0.1
+
+  roles:
+    - app
+```
+
+Содержимое файла `db.yml`:
+```yaml
+- name: Configure MongoDB
+  hosts: db
+  become: true
+
+  vars:
+    mongo_bind_ip: 0.0.0.0
+
+  roles:
+    - db
+```
+
+Создаём инфраструктуру для проверки созданных ролей:
+```console
+> terraform apply
+...
+Apply complete! Resources: 4 added, 0 changed, 0 destroyed.
+
+Outputs:
+
+external_ip_address_app = 51.250.68.162
+external_ip_address_db = 51.250.1.154
+```
+
+В файле `app.yml` обновим переменную, указывающую на адрес сервера баз данных.
+Проверим работу ролей:
+```console
+> ansible-playbook site.yml
+
+PLAY [Install Python] ****************************************************************************************************
+
+TASK [Install Pyhon use raw module] **************************************************************************************
+changed: [fhmenfc5uivob0qs79co.auto.internal]
+changed: [fhma8acfnmsrmemd0s8h.auto.internal]
+
+PLAY [Configure MongoDB] *************************************************************************************************
+
+TASK [Gathering Facts] ***************************************************************************************************
+ok: [fhmenfc5uivob0qs79co.auto.internal]
+
+TASK [db : Change mongodb config file] ***********************************************************************************
+changed: [fhmenfc5uivob0qs79co.auto.internal]
+
+RUNNING HANDLER [db : restart mongodb] ***********************************************************************************
+changed: [fhmenfc5uivob0qs79co.auto.internal]
+
+PLAY [Configure App] *****************************************************************************************************
+
+TASK [Gathering Facts] ***************************************************************************************************
+ok: [fhma8acfnmsrmemd0s8h.auto.internal]
+
+TASK [app : Add unit file for Puma] **************************************************************************************
+changed: [fhma8acfnmsrmemd0s8h.auto.internal]
+
+TASK [app : Add config for DB connection] ********************************************************************************
+changed: [fhma8acfnmsrmemd0s8h.auto.internal]
+
+TASK [app : enable puma] *************************************************************************************************
+changed: [fhma8acfnmsrmemd0s8h.auto.internal]
+
+RUNNING HANDLER [app : reload puma] **************************************************************************************
+changed: [fhma8acfnmsrmemd0s8h.auto.internal]
+
+PLAY [Deploy App] ********************************************************************************************************
+
+TASK [Gathering Facts] ***************************************************************************************************
+ok: [fhma8acfnmsrmemd0s8h.auto.internal]
+
+TASK [Install git] *******************************************************************************************************
+ok: [fhma8acfnmsrmemd0s8h.auto.internal]
+
+TASK [Fetch the latest version of application code] **********************************************************************
+changed: [fhma8acfnmsrmemd0s8h.auto.internal]
+
+TASK [Bundle install] ****************************************************************************************************
+changed: [fhma8acfnmsrmemd0s8h.auto.internal]
+
+RUNNING HANDLER [reload puma] ********************************************************************************************
+changed: [fhma8acfnmsrmemd0s8h.auto.internal]
+
+PLAY RECAP ***************************************************************************************************************
+fhma8acfnmsrmemd0s8h.auto.internal : ok=11   changed=8    unreachable=0    failed=0    skipped=0    rescued=0    ignored=0
+fhmenfc5uivob0qs79co.auto.internal : ok=4    changed=3    unreachable=0    failed=0    skipped=0    rescued=0    ignored=0
+```
+
+Проверяем работу приложения не выходя из консоли:
+```console
+> lynx -dump http://51.250.68.162:9292
+   (BUTTON) [1]Monolith Reddit
+     * [2]Sign up
+     * [3]Login
+
+Menu
+
+     * [4]All posts
+     * [5]New post
+```
+
+Всё на месте :-)
+
+---
+
+Попробуем разделить окружения. Создаём две папки `environtents/prod` и `environtents/stage`, в каждый переносим файл инвентори. Настраиваем окружение по утолчанию, указав путь к инвентори в `ansible.cfg`.
+```ini
+[defaults]
+inventory = ./environments/stage/inventory
+remote_user = ubuntu
+private_key_file = ~/.ssh/ubuntu
+host_key_checking = False
+retry_files_enabled = False
+```
+
+Зададим переменные для каждого окружения. Для этого создаём в папках окружений каталоги `group_vars`, в них файлы `app` и `db`, содержащие переменные из `app.yml` и `db.yml` соответственно. Также в каждом из окружений создаём файлы `all` с переменной `env` со значением, указывающим на текущее окружение (env: prod и env: stage). В файлы задач каждой роли добавляем вывод значения переменной `env` через модуль `debug`.
+
+При помощи `terraform` создаём окружение `stage`, проверяем работу `ansible-playbook playbooks/site.yml`. Аналогично проверяем работу окружения `prod`, указав путь к файлу инвентори `ansible-playbook -i environments/prod/inventory playbooks/site.yml`.
+Видим, что всё работает.
+
+---
+
+Попробуем использовать роли, созданные сообществом. К примеру - при помощи роли `jdauphant.nginx` развернём `nginx` в качестве обратного прокси для нашего приложения. Внешние роли можно указать для каждого окружения в файле зависимостей `requirements.yml`. Создадим такие файлы в каждом из окружений:
+```yaml
+- src: jdauphant.nginx
+  version: v2.21.1
+```
+
+Устанавливаем роль:
+```console
+> ansible-galaxy install -r environments/stage/requirements.yml
+Starting galaxy role install process
+- downloading role 'nginx', owned by jdauphant
+- downloading role from https://github.com/jdauphant/ansible-role-nginx/archive/v2.21.1.tar.gz
+- extracting jdauphant.nginx to /.../ansible/roles/jdauphant.nginx
+- jdauphant.nginx (v2.21.1) was installed successfully
+```
+
+[Документацию](https://github.com/jdauphant/ansible-role-nginx) на роль можно найти на Github.com. Минимально необходимые переменные выглядят так:
+```yaml
+nginx_sites:
+  default:
+    - listen 80
+    - server_name "reddit"
+    - location / { proxy_pass http://127.0.0.1:9292; }
+```
+
+Вносим эти переменные в файлы `app` каждого окружения.
+
+Тут задание внезапно обрывается и нам предлагают самостоятельно доделать остальное:
+1. Добавьте в конфигурацию Terraform открытие 80 порта для инстанса приложения
+2. Добавьте вызов роли jdauphant.nginx в плейбук app.yml
+3. Примените плейбук site.yml для окружения stage и проверьте, что приложение теперь доступно на 80 порту
+
+По пункту 1 - не помню, чтобы мы задавали в Terraform какие-то порты.
+По пункту 2 - доавляем внешнюю роль в наш плейбук `app.yml`:
+```yaml
+- name: Configure App
+  hosts: app
+  become: true
+
+  roles:
+    - app
+    - jdauphant.nginx
+```
+
+По пункту 3 - пробуем применить `site.yml` и проверим, что приложение доступно на порту 80.
+
+```console
+> ansible-playbook playbooks/site.yml
+
+PLAY [Install Python] **************************************************************************************************************************************
+
+TASK [Install Pyhon use raw module] ************************************************************************************************************************
+changed: [appserver]
+changed: [dbserver]
+
+PLAY [Configure MongoDB] ***********************************************************************************************************************************
+
+TASK [Gathering Facts] *************************************************************************************************************************************
+ok: [dbserver]
+
+TASK [db : Change mongodb config file] *********************************************************************************************************************
+ok: [dbserver]
+
+TASK [db : Show info about the env this host belongs to] ***************************************************************************************************
+ok: [dbserver] => {
+    "msg": "This host is in stage environment!!!"
+}
+
+PLAY [Configure App] ***************************************************************************************************************************************
+
+TASK [Gathering Facts] *************************************************************************************************************************************
+ok: [appserver]
+
+TASK [app : Add unit file for Puma] ************************************************************************************************************************
+ok: [appserver]
+
+TASK [app : Add config for DB connection] ******************************************************************************************************************
+--- before: /home/ubuntu/db_config
++++ after: /home/.../tmp/ansible-local-18565nraycpo7/tmpb4wwlyqz/db_config.j2
+@@ -1 +1 @@
+-DATABASE_URL=0.0.0.0
++DATABASE_URL=51.250.91.16
+
+changed: [appserver]
+
+TASK [app : enable puma] ***********************************************************************************************************************************
+ok: [appserver]
+
+TASK [app : Show info about the env this host belongs to] **************************************************************************************************
+ok: [appserver] => {
+    "msg": "This host is in stage environment!!!"
+}
+
+TASK [jdauphant.nginx : include_vars] **********************************************************************************************************************
+ok: [appserver] => (item=/home/.../ansible/roles/jdauphant.nginx/vars/../vars/Debian.yml)
+
+TASK [jdauphant.nginx : include_tasks] *********************************************************************************************************************
+skipping: [appserver]
+
+TASK [jdauphant.nginx : include_tasks] *********************************************************************************************************************
+skipping: [appserver]
+
+TASK [jdauphant.nginx : include_tasks] *********************************************************************************************************************
+included: /home/.../ansible/roles/jdauphant.nginx/tasks/installation.packages.yml for appserver
+
+TASK [jdauphant.nginx : Install the epel packages for EL distributions] ************************************************************************************
+skipping: [appserver]
+
+TASK [jdauphant.nginx : Install the nginx packages from official repo for EL distributions] ****************************************************************
+skipping: [appserver]
+
+TASK [jdauphant.nginx : Install the nginx packages for all other distributions] ****************************************************************************
+The following additional packages will be installed:
+  geoip-database libgd3 libgeoip1 libjbig0 libjpeg-turbo8 libjpeg8 libtiff5
+  libvpx3 libxpm4 libxslt1.1 nginx-common nginx-core
+Suggested packages:
+  libgd-tools geoip-bin fcgiwrap nginx-doc ssl-cert
+The following NEW packages will be installed:
+  geoip-database libgd3 libgeoip1 libjbig0 libjpeg-turbo8 libjpeg8 libtiff5
+  libvpx3 libxpm4 libxslt1.1 nginx nginx-common nginx-core
+0 upgraded, 13 newly installed, 0 to remove and 8 not upgraded.
+changed: [appserver]
+
+TASK [jdauphant.nginx : Create the directories for site specific configurations] ***************************************************************************
+ok: [appserver] => (item=sites-available)
+ok: [appserver] => (item=sites-enabled)
+--- before
++++ after
+@@ -1,4 +1,4 @@
+ {
+     "path": "/etc/nginx/auth_basic",
+-    "state": "absent"
++    "state": "directory"
+ }
+
+changed: [appserver] => (item=auth_basic)
+ok: [appserver] => (item=conf.d)
+--- before
++++ after
+@@ -1,4 +1,4 @@
+ {
+     "path": "/etc/nginx/conf.d/stream",
+-    "state": "absent"
++    "state": "directory"
+ }
+
+changed: [appserver] => (item=conf.d/stream)
+ok: [appserver] => (item=snippets)
+--- before
++++ after
+@@ -1,4 +1,4 @@
+ {
+     "path": "/etc/nginx/modules-available",
+-    "state": "absent"
++    "state": "directory"
+ }
+
+changed: [appserver] => (item=modules-available)
+--- before
++++ after
+@@ -1,4 +1,4 @@
+ {
+     "path": "/etc/nginx/modules-enabled",
+-    "state": "absent"
++    "state": "directory"
+ }
+
+changed: [appserver] => (item=modules-enabled)
+
+TASK [jdauphant.nginx : Ensure log directory exist] ********************************************************************************************************
+ok: [appserver]
+
+TASK [jdauphant.nginx : include_tasks] *********************************************************************************************************************
+included: /home/.../ansible/roles/jdauphant.nginx/tasks/remove-defaults.yml for appserver
+
+TASK [jdauphant.nginx : Disable the default site] **********************************************************************************************************
+--- before
++++ after
+@@ -1,4 +1,4 @@
+ {
+     "path": "/etc/nginx/sites-enabled/default",
+-    "state": "link"
++    "state": "absent"
+ }
+
+changed: [appserver]
+
+TASK [jdauphant.nginx : Disable the default site (on newer nginx versions)] ********************************************************************************
+skipping: [appserver]
+
+TASK [jdauphant.nginx : Remove the default configuration] **************************************************************************************************
+ok: [appserver]
+
+TASK [jdauphant.nginx : include_tasks] *********************************************************************************************************************
+skipping: [appserver]
+
+TASK [jdauphant.nginx : Remove unwanted sites] *************************************************************************************************************
+
+TASK [jdauphant.nginx : Remove unwanted conf] **************************************************************************************************************
+
+TASK [jdauphant.nginx : Remove unwanted snippets] **********************************************************************************************************
+
+TASK [jdauphant.nginx : Remove unwanted auth_basic_files] **************************************************************************************************
+
+TASK [jdauphant.nginx : Copy the nginx configuration file] *************************************************************************************************
+--- before: /etc/nginx/nginx.conf
++++ after: /home/.../tmp/ansible-local-18565nraycpo7/tmprkvn5pgn/nginx.conf.j2
+@@ -1,85 +1,33 @@
+-user www-data;
+-worker_processes auto;
+-pid /run/nginx.pid;
++#Ansible managed
++user              www-data  www-data;
++
++worker_processes  2;
++
++pid        /var/run/nginx.pid;
++
++worker_rlimit_nofile 1024;
++
++include /etc/nginx/modules-enabled/*.conf;
++
+
+ events {
+-       worker_connections 768;
+-       # multi_accept on;
++        worker_connections 512;
+ }
++
+
+ http {
+
+-       ##
+-       # Basic Settings
+-       ##
++        include /etc/nginx/mime.types;
++        default_type application/octet-stream;
++        sendfile on;
++        tcp_nopush on;
++        tcp_nodelay on;
++        server_tokens off;
++        access_log "/var/log/nginx/access.log";
++        error_log "/var/log/nginx/error.log" error;
+
+-       sendfile on;
+-       tcp_nopush on;
+-       tcp_nodelay on;
+-       keepalive_timeout 65;
+-       types_hash_max_size 2048;
+-       # server_tokens off;
+-
+-       # server_names_hash_bucket_size 64;
+-       # server_name_in_redirect off;
+-
+-       include /etc/nginx/mime.types;
+-       default_type application/octet-stream;
+-
+-       ##
+-       # SSL Settings
+-       ##
+-
+-       ssl_protocols TLSv1 TLSv1.1 TLSv1.2; # Dropping SSLv3, ref: POODLE
+-       ssl_prefer_server_ciphers on;
+-
+-       ##
+-       # Logging Settings
+-       ##
+-
+-       access_log /var/log/nginx/access.log;
+-       error_log /var/log/nginx/error.log;
+-
+-       ##
+-       # Gzip Settings
+-       ##
+-
+-       gzip on;
+-       gzip_disable "msie6";
+-
+-       # gzip_vary on;
+-       # gzip_proxied any;
+-       # gzip_comp_level 6;
+-       # gzip_buffers 16 8k;
+-       # gzip_http_version 1.1;
+-       # gzip_types text/plain text/css application/json application/javascript text/xml application/xml application/xml+rss text/javascript;
+-
+-       ##
+-       # Virtual Host Configs
+-       ##
+-
+-       include /etc/nginx/conf.d/*.conf;
+-       include /etc/nginx/sites-enabled/*;
++        include /etc/nginx/conf.d/*.conf;
++        include /etc/nginx/sites-enabled/*;
+ }
+
+
+-#mail {
+-#      # See sample authentication script at:
+-#      # http://wiki.nginx.org/ImapAuthenticateWithApachePhpScript
+-#
+-#      # auth_http localhost/auth.php;
+-#      # pop3_capabilities "TOP" "USER";
+-#      # imap_capabilities "IMAP4rev1" "UIDPLUS";
+-#
+-#      server {
+-#              listen     localhost:110;
+-#              protocol   pop3;
+-#              proxy      on;
+-#      }
+-#
+-#      server {
+-#              listen     localhost:143;
+-#              protocol   imap;
+-#              proxy      on;
+-#      }
+-#}
+
+changed: [appserver]
+
+TASK [jdauphant.nginx : Ensure auth_basic files created] ***************************************************************************************************
+
+TASK [jdauphant.nginx : Create the configurations for sites] ***********************************************************************************************
+--- before
++++ after: /home/.../tmp/ansible-local-18565nraycpo7/tmpjdxtm4uo/site.conf.j2
+@@ -0,0 +1,10 @@
++#Ansible managed
++
++server {
++   listen 80;
++   server_name "reddit";
++   location / {
++       proxy_pass http://127.0.0.1:9292;
++
++   }
++}
+
+changed: [appserver] => (item={'key': 'default', 'value': ['listen 80', 'server_name "reddit"', 'location / { proxy_pass http://127.0.0.1:9292; }']})
+
+TASK [jdauphant.nginx : Create links for sites-enabled] ****************************************************************************************************
+--- before
++++ after
+@@ -1,4 +1,4 @@
+ {
+     "path": "/etc/nginx/sites-enabled/default.conf",
+-    "state": "absent"
++    "state": "link"
+ }
+
+changed: [appserver] => (item={'key': 'default', 'value': ['listen 80', 'server_name "reddit"', 'location / { proxy_pass http://127.0.0.1:9292; }']})
+
+TASK [jdauphant.nginx : Create the configurations for independent config file] *****************************************************************************
+
+TASK [jdauphant.nginx : Create configuration snippets] *****************************************************************************************************
+
+TASK [jdauphant.nginx : Create the configurations for independent config file for streams] *****************************************************************
+
+TASK [jdauphant.nginx : Create links for modules-enabled] **************************************************************************************************
+
+TASK [jdauphant.nginx : include_tasks] *********************************************************************************************************************
+skipping: [appserver]
+
+TASK [jdauphant.nginx : include_tasks] *********************************************************************************************************************
+skipping: [appserver]
+
+TASK [jdauphant.nginx : Start the nginx service] ***********************************************************************************************************
+changed: [appserver]
+
+RUNNING HANDLER [app : reload puma] ************************************************************************************************************************
+changed: [appserver]
+
+RUNNING HANDLER [jdauphant.nginx : restart nginx] **********************************************************************************************************
+changed: [appserver] => {
+    "msg": "checking config first"
+}
+
+RUNNING HANDLER [jdauphant.nginx : reload nginx] ***********************************************************************************************************
+changed: [appserver] => {
+    "msg": "checking config first"
+}
+
+RUNNING HANDLER [jdauphant.nginx : check nginx configuration] **********************************************************************************************
+ok: [appserver]
+
+RUNNING HANDLER [jdauphant.nginx : restart nginx - after config check] *************************************************************************************
+changed: [appserver]
+
+RUNNING HANDLER [jdauphant.nginx : reload nginx - after config check] **************************************************************************************
+changed: [appserver]
+
+PLAY [Deploy App] ******************************************************************************************************************************************
+
+TASK [Gathering Facts] *************************************************************************************************************************************
+ok: [appserver]
+
+TASK [Install git] *****************************************************************************************************************************************
+ok: [appserver]
+
+TASK [Fetch the latest version of application code] ********************************************************************************************************
+ok: [appserver]
+
+TASK [Bundle install] **************************************************************************************************************************************
+ok: [appserver]
+
+PLAY RECAP *************************************************************************************************************************************************
+appserver                  : ok=28   changed=14   unreachable=0    failed=0    skipped=17   rescued=0    ignored=0
+dbserver                   : ok=4    changed=1    unreachable=0    failed=0    skipped=0    rescued=0    ignored=0
+```
+
+Проверяем приложение на порту 80:
+```console
+> lynx -dump http://51.250.94.249:80
+   (BUTTON) [1]Monolith Reddit
+     * [2]Sign up
+     * [3]Login
+
+Menu
+
+     * [4]All posts
+     * [5]New post
+
+References
+```
+
+Всё работает.
+
+---
+
+Проверим, как работает ansible vault. Создадим файл `vault.key` с ключом шифрования и добавим файл в `.gitignore`. Также его можно указать в `ansible.cfg`:
+```ini
+[defaults]
+...
+vault_password_file = vault.key
+```
+
+Создаём плейбук для добавления пользователей `ansible/playbooks/users.yml`:
+```yaml
+- name: Create users
+  hosts: all
+  become: true
+
+  vars_files:
+    - "{{ inventory_dir }}/credentials.yml"
+
+  tasks:
+    - name: create users
+      user:
+        name: "{{ item.key }}"
+        password: "{{ item.value.password|password_hash('sha512', 65534|random(seed=inventory_hostname)|string) }}"
+        groups: "{{ item.value.groups | default(omit) }}"
+      with_dict: "{{ credentials.users }}"
+```
+
+Создаём файлы с параметрами пользователей, свои для каждого окружения.
+
+Файл `ansible/environments/prod/credentials.yml`:
+
+```yaml
+credentials:
+  users:
+    admin:
+      password: admin123
+      groups: sudo
+```
+
+Файл `ansible/environments/stage/credentials.yml`:
+
+```yaml
+credentials:
+  users:
+    admin:
+      password: qwerty123
+      groups: sudo
+    qauser:
+      password: test123
+```
+
+Шифруем содержимое командой `ansible-vault encrypt environments/.../credentials.yml`. Проверяем:
+```console
+> cat environments/prod/credentials.yml
+$ANSIBLE_VAULT;1.1;AES256
+35303863666462356132656331393038623562363333616334316561376433623966636238383831
+6333663863393839626131373336633064396363393831320a636263366439343338393461656461
+39356133333133383561366165646437653631653330393037303339333338326663666334356130
+6231323338316263330a393564363865393862363565313831396464633334353034386564373939
+36396466346435656436356234363032336565313337393930313233663936613630653938343733
+62653061613031366161346639396661623638316131626336313062356265353639356236616266
+38393263343838663965316330393635313034373737393939663337386264653764306362333334
+30633333303837303334
+```
+
+Файл зашифрован, чего мы и добивались. Добавляем задачу создания пользователей в `site.yml`:
+```yaml
+- import_playbook: install_python.yml
+- import_playbook: db.yml
+- import_playbook: app.yml
+- import_playbook: deploy.yml
+- import_playbook: users.yml
+```
+Применяем, проверяем, что пользователи созданы:
+```console
+> ssh -l admin 51.250.94.249
+admin@51.250.94.249's password:
+Welcome to Ubuntu 16.04.7 LTS (GNU/Linux 4.4.0-142-generic x86_64)
+
+ * Documentation:  https://help.ubuntu.com
+ * Management:     https://landscape.canonical.com
+ * Support:        https://ubuntu.com/advantage
+
+The programs included with the Ubuntu system are free software;
+the exact distribution terms for each program are described in the
+individual files in /usr/share/doc/*/copyright.
+
+Ubuntu comes with ABSOLUTELY NO WARRANTY, to the extent permitted by
+applicable law.
+
+$ id
+uid=1001(admin) gid=1002(admin) groups=1002(admin),27(sudo)
+$
+Connection to 51.250.94.249 closed.
+
+> ssh -l qauser 51.250.94.249
+qauser@51.250.94.249's password:
+Welcome to Ubuntu 16.04.7 LTS (GNU/Linux 4.4.0-142-generic x86_64)
+
+ * Documentation:  https://help.ubuntu.com
+ * Management:     https://landscape.canonical.com
+ * Support:        https://ubuntu.com/advantage
+
+The programs included with the Ubuntu system are free software;
+the exact distribution terms for each program are described in the
+individual files in /usr/share/doc/*/copyright.
+
+Ubuntu comes with ABSOLUTELY NO WARRANTY, to the extent permitted by
+applicable law.
+
+$ id
+uid=1002(qauser) gid=1003(qauser) groups=1003(qauser)
+$
+Connection to 51.250.94.249 closed.
+```
+
+Всё работает.
+
+**Результат №09-1:**
+Мы научились создавать, использовать роли, поработали с ролями, созданными сообществом Ansible. Разделили окружение на prod и stage, зашифровали чувствительные данные.
+
+---
+
+**Задание №09-2:**
+В прошлом ДЗ было задание со ⭐ про работу с динамическим инвентори. Настройте использование динамического инвентори для окружений stage и prod.
+В коде Ansible это должно быть закоммичено.
+
+**Решение №09-2:**
+Переносим в каталоги `prod` и `stage` наш файл из предыдущего задания с динамическим инвентори `yc.yml`. Добавляем файл с ключом `ansible-key.json` в корень папки с конфигом `ansible`, прописываем использование плагина в `ansible.cfg`.
+```ini
+[defaults]
+inventory = ./environments/stage/yc.yml
+remote_user = ubuntu
+private_key_file = ~/.ssh/ubuntu
+host_key_checking = False
+retry_files_enabled = False
+roles_path = ./roles
+vault_password_file = vault.key
+
+[diff]
+always = True
+context = 5
+
+[inventory]
+enable_plugins = yc_compute
+```
+
+Создаём инфраструктуру при помощи `terraform apply` и проверяем работу инвентори:
+```console
+> ansible-inventory --list
+{
+    "_meta": {
+        "hostvars": {
+            "fhme5fs09pcb9tcnu1hi.auto.internal": {
+                "ansible_host": "51.250.85.175",
+                "db_host": "51.250.91.16",
+                "env": "stage",
+                "nginx_sites": {
+                    "default": [
+                        "listen 80",
+                        "server_name \"reddit\"",
+                        "location / { proxy_pass http://127.0.0.1:9292; }"
+                    ]
+                }
+            },
+            "fhmhkqmoe5cpuai7taba.auto.internal": {
+                "ansible_host": "51.250.81.57",
+                "env": "stage",
+                "mongo_bind_ip": "0.0.0.0"
+            }
+        }
+    },
+    "all": {
+        "children": [
+            "app",
+            "db",
+            "ungrouped"
+        ]
+    },
+    "app": {
+        "hosts": [
+            "fhme5fs09pcb9tcnu1hi.auto.internal"
+        ]
+    },
+    "db": {
+        "hosts": [
+            "fhmhkqmoe5cpuai7taba.auto.internal"
+        ]
+    }
+}
+```
+
+**Результат №09-2:**
+
+Применяем плейбуки, всё работает, но уже с динамическим инвентори.
