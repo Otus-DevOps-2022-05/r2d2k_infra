@@ -1,5 +1,9 @@
 galaxy_info:
-  author: ***
-  description: ***
+  author: ubuntu
+  description: homework
   license: MIT
   min_ansible_version: 2.1
+  platforms:
+    - name: Ubuntu
+      versions:
+        - all
