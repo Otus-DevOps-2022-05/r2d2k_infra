@@ -1,6 +1,6 @@
 - name: Add unit file for Puma
-  copy:
-    src: puma.service
+  template:
+    src: puma.service.j2
     dest: /etc/systemd/system/puma.service
     mode: '0644'
   notify: reload puma
@@ -9,9 +9,9 @@
 - name: Add config for DB connection
   template:
     src: db_config.j2
-    dest: /home/ubuntu/db_config
-    owner: ubuntu
-    group: ubuntu
+    dest: "/home/{{ deploy_user }}/db_config"
+    owner: "{{ deploy_user }}"
+    group: "{{ deploy_user }}"
     mode: '0644'
   notify: reload puma
   tags: puma
