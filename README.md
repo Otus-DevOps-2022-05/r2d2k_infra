@@ -12,6 +12,7 @@
 - [07 - Ansible-1](#07---ansible-1)
 - [08 - Ansible-2](#08---ansible-2)
 - [09 - Ansible-3](#09---ansible-3)
+- [10 - Ansible-4](#10---ansible-4)
 
 <!-- /MarkdownTOC -->
 
@@ -5071,3 +5072,1435 @@ enable_plugins = yc_compute
 **Результат №09-2:**
 
 Применяем плейбуки, всё работает, но уже с динамическим инвентори.
+
+---
+
+## 10 - Ansible-4
+
+**Задание №10-1:** Разработка и тестирование Ansible ролей и плейбуков
+- Локальная разработка при помощи Vagrant, доработка ролей для провижининга в Vagrant
+- Тестирование ролей при помощи Molecule и Testinfra
+- Переключение сбора образов пакером на использование ролей
+
+**Решение №10-1:**
+
+Начнём. Используется Ubuntu, поэтому установка `vagrant` будет выглядеть так:
+```console
+> sudo apt install vagrant virtualbox
+...
+
+
+> vagrant -v
+Vagrant 2.2.19
+```
+
+Для того, чтобы не тащить ненужное в репозиторий, обновим `.gitignore`:
+```console
+> cat .gitignore
+*.tfstate
+*.tfstate.*.backup
+*.tfstate.backup
+*.tfvars
+*.tfbackend
+.terraform/
+terraform-key.json
+packer-key.json
+ansible-key.json
+.terraform.lock.hcl
+*.retry
+jdauphant.nginx
+vault.key
+
+# Vagrant & molecule
+.vagrant/
+*.log
+*.pyc
+.molecule
+.cache
+.pytest_cache
+```
+
+В папке ansible создаём `Vagrantfile` для подготовки нашей инфраструктуры:
+```ruby
+Vagrant.configure("2") do |config|
+
+  config.vm.provider :virtualbox do |v|
+    v.memory = 512
+  end
+
+  config.vm.define "dbserver" do |db|
+    db.vm.box = "ubuntu/xenial64"
+    db.vm.hostname = "dbserver"
+    db.vm.network :private_network, ip: "192.168.56.10"
+  end
+
+  config.vm.define "appserver" do |app|
+    app.vm.box = "ubuntu/xenial64"
+    app.vm.hostname = "appserver"
+    app.vm.network :private_network, ip: "192.168.56.20"
+  end
+end
+```
+
+Запускаем наше окружение при помощи `vagrant up`:
+```console
+> vagrant up
+Bringing machine 'dbserver' up with 'virtualbox' provider...
+Bringing machine 'appserver' up with 'virtualbox' provider...
+==> dbserver: Importing base box 'ubuntu/xenial64'...
+==> dbserver: Matching MAC address for NAT networking...
+==> dbserver: Checking if box 'ubuntu/xenial64' version '20211001.0.0' is up to date...
+==> dbserver: Setting the name of the VM: ansible_dbserver_1659585564464_33750
+==> dbserver: Clearing any previously set network interfaces...
+==> dbserver: Preparing network interfaces based on configuration...
+    dbserver: Adapter 1: nat
+    dbserver: Adapter 2: hostonly
+==> dbserver: Forwarding ports...
+    dbserver: 22 (guest) => 2222 (host) (adapter 1)
+==> dbserver: Running 'pre-boot' VM customizations...
+==> dbserver: Booting VM...
+==> dbserver: Waiting for machine to boot. This may take a few minutes...
+    dbserver: SSH address: 127.0.0.1:2222
+    dbserver: SSH username: vagrant
+    dbserver: SSH auth method: private key
+    dbserver: Warning: Connection reset. Retrying...
+    dbserver:
+    dbserver: Vagrant insecure key detected. Vagrant will automatically replace
+    dbserver: this with a newly generated keypair for better security.
+    dbserver:
+    dbserver: Inserting generated public key within guest...
+    dbserver: Removing insecure key from the guest if it's present...
+    dbserver: Key inserted! Disconnecting and reconnecting using new SSH key...
+==> dbserver: Machine booted and ready!
+==> dbserver: Checking for guest additions in VM...
+==> dbserver: Setting hostname...
+==> dbserver: Configuring and enabling network interfaces...
+==> dbserver: Mounting shared folders...
+    dbserver: /vagrant => /home/.../ansible
+==> appserver: Importing base box 'ubuntu/xenial64'...
+==> appserver: Matching MAC address for NAT networking...
+==> appserver: Checking if box 'ubuntu/xenial64' version '20211001.0.0' is up to date...
+==> appserver: Setting the name of the VM: ansible_appserver_1659585668688_5229
+==> appserver: Fixed port collision for 22 => 2222. Now on port 2200.
+==> appserver: Clearing any previously set network interfaces...
+==> appserver: Preparing network interfaces based on configuration...
+    appserver: Adapter 1: nat
+    appserver: Adapter 2: hostonly
+==> appserver: Forwarding ports...
+    appserver: 22 (guest) => 2200 (host) (adapter 1)
+==> appserver: Running 'pre-boot' VM customizations...
+==> appserver: Booting VM...
+==> appserver: Waiting for machine to boot. This may take a few minutes...
+    appserver: SSH address: 127.0.0.1:2200
+    appserver: SSH username: vagrant
+    appserver: SSH auth method: private key
+    appserver:
+    appserver: Vagrant insecure key detected. Vagrant will automatically replace
+    appserver: this with a newly generated keypair for better security.
+    appserver:
+    appserver: Inserting generated public key within guest...
+    appserver: Removing insecure key from the guest if it's present...
+    appserver: Key inserted! Disconnecting and reconnecting using new SSH key...
+==> appserver: Machine booted and ready!
+==> appserver: Checking for guest additions in VM...
+==> appserver: Setting hostname...
+==> appserver: Configuring and enabling network interfaces...
+==> appserver: Mounting shared folders...
+    appserver: /vagrant => /home/.../ansible
+```
+
+Внешне всё хорошо и без ошибок. Проверим, как себя чувствуют виртуальные машины:
+```console
+> vagrant status
+Current machine states:
+
+dbserver                  running (virtualbox)
+appserver                 running (virtualbox)
+```
+
+Проверим возможность входа в консоль машин:
+```console
+> vagrant ssh dbserver
+Welcome to Ubuntu 16.04.7 LTS (GNU/Linux 4.4.0-210-generic x86_64)
+
+ * Documentation:  https://help.ubuntu.com
+ * Management:     https://landscape.canonical.com
+ * Support:        https://ubuntu.com/advantage
+
+UA Infra: Extended Security Maintenance (ESM) is not enabled.
+
+0 updates can be applied immediately.
+
+45 additional security updates can be applied with UA Infra: ESM
+Learn more about enabling UA Infra: ESM service for Ubuntu 16.04 at
+https://ubuntu.com/16-04
+
+New release '18.04.6 LTS' available.
+Run 'do-release-upgrade' to upgrade to it.
+
+
+vagrant@dbserver:~$ logout
+```
+
+Проверим сетевую связность:
+```console
+> ping 192.168.56.10
+PING 192.168.56.10 (192.168.56.10) 56(84) bytes of data.
+64 bytes from 192.168.56.10: icmp_seq=1 ttl=64 time=1.45 ms
+64 bytes from 192.168.56.10: icmp_seq=2 ttl=64 time=0.613 ms
+64 bytes from 192.168.56.10: icmp_seq=3 ttl=64 time=0.518 ms
+64 bytes from 192.168.56.10: icmp_seq=4 ttl=64 time=0.673 ms
+...
+```
+
+Vagrant поддерживает большое количество провижинеров, которые позволяют автоматизировать процесс конфигурации созданных VMs с использованием популярных инструментов управления конфигурацией и обычных скриптов на bash. Мы будем использовать Ansible провижинер для проверки работы наших ролей и плейбуков.
+
+Добавим в описание хоста `dbserver` секцию для `ansible`:
+```ruby
+Vagrant.configure("2") do |config|
+
+  config.vm.provider :virtualbox do |v|
+    v.memory = 512
+  end
+
+  config.vm.define "dbserver" do |db|
+    db.vm.box = "ubuntu/xenial64"
+    db.vm.hostname = "dbserver"
+    db.vm.network :private_network, ip: "192.168.56.10"
+
+    db.vm.provision "ansible" do |ansible|
+      ansible.playbook = "playbooks/site.yml"
+      ansible.groups = {
+      "db" => ["dbserver"],
+      "db:vars" => {"mongo_bind_ip" => "0.0.0.0"}
+      }
+    end
+  end
+
+  config.vm.define "appserver" do |app|
+    app.vm.box = "ubuntu/xenial64"
+    app.vm.hostname = "appserver"
+    app.vm.network :private_network, ip: "192.168.56.20"
+  end
+end
+```
+
+Применим настройку к хосту `dbserver`:
+```console
+> vagrant provision dbserver
+==> dbserver: Running provisioner: ansible...
+    dbserver: Running ansible-playbook...
+[WARNING]: Failed to load inventory plugin, skipping yc_compute
+ERROR! No inventory plugins available to generate inventory, make sure you have at least one whitelisted.
+Ansible failed to complete successfully. Any error output should be
+visible above. Please fix these errors and try again.
+```
+
+У нас остались старые хвосты от предыдущих занятий, поэтому закомментируем плагин в файле `ansible.cfg`. Данная работа выполняется на свежей машине, куда перенесён только репозиторий с заданиями. Плагины, которые мы ставили руками, сюда не переехали. После удаления ссылок на `yc_compute` проверяем работу ещё раз:
+```console
+> vagrant provision dbserver
+==> dbserver: Running provisioner: ansible...
+    dbserver: Running ansible-playbook...
+
+PLAY [Install Python] **********************************************************
+
+TASK [Gathering Facts] *********************************************************
+ok: [dbserver]
+
+TASK [Check for Python] ********************************************************
+ok: [dbserver]
+
+TASK [Install Pyhon use raw module] ********************************************
+changed: [dbserver]
+
+PLAY [Configure MongoDB] *******************************************************
+
+TASK [Gathering Facts] *********************************************************
+ok: [dbserver]
+
+TASK [db : Change mongodb config file] *****************************************
+--- before
++++ after: /home/.../.ansible/tmp/ansible-local-168462871rmro/tmp7lyb8x79/mongodb.conf.j2
+@@ -0,0 +1,16 @@
++# Where and how to store data.
++storage:
++  dbPath: /var/lib/mongodb
++  journal:
++    enabled: true
++
++# where to write logging data.
++systemLog:
++  destination: file
++  logAppend: true
++  path: /var/log/mongodb/mongod.log
++
++# network interfaces
++net:
++  port: 27017
++  bindIp: 0.0.0.0
+
+changed: [dbserver]
+
+TASK [db : Show info about the env this host belongs to] ***********************
+ok: [dbserver] => {
+    "msg": "This host is in local environment!!!"
+}
+
+RUNNING HANDLER [db : restart mongodb] *****************************************
+fatal: [dbserver]: FAILED! => {"changed": false, "msg": "Could not find the requested service mongodb: host"}
+
+NO MORE HOSTS LEFT *************************************************************
+
+PLAY RECAP *********************************************************************
+dbserver                   : ok=6    changed=2    unreachable=0    failed=1    skipped=0    rescued=0    ignored=0
+
+Ansible failed to complete successfully. Any error output should be
+visible above. Please fix these errors and try again.
+```
+
+В стандартном домашнем задании всё должно упасть, потому, что не сможет найти `python`. У меня же `python` устанавливался при помощи модуля `raw`:
+```yaml
+- name: Install Python
+  hosts: all
+  gather_facts: true
+
+  tasks:
+    - name: Check for Python
+      raw: test -e /usr/bin/python
+      changed_when: false
+      failed_when: false
+      register: check_python_result
+
+    - name: Install Pyhon use raw module
+      raw: apt install -y python
+      become: true
+      when: check_python_result.rc != 0
+```
+
+Домашнее задание ожидает, что установка `python` будет выпоняться плейбуком `base.yml`, так что я переименую свой и обновлю `site.yml`:
+```yaml
+- import_playbook: base.yml
+- import_playbook: db.yml
+- import_playbook: app.yml
+- import_playbook: deploy.yml
+```
+
+Выше было видно, что `ansible` выдавал ошибку, когда не мог перезапустить `mongodb`. Логично, т.к. ранее мы разворачивали инфраструктуру из подготовленных образов, в которых `mongodb` была предустановлена. Не проблема, используем плейбук `packer_db.yml`, созданный в предыдущих заданиях. Каждое задание пометим тегом `install`. В итоге получим файл `install_mongo.yml`:
+```yaml
+- name: Install mongodb
+  apt:
+    name: mongodb
+    state: present
+    update_cache: yes
+  retries: 5
+  delay: 20
+  tags: install
+
+- name: Remove useless packages from the cache
+  apt:
+    autoclean: yes
+  tags: install
+
+- name: Remove dependencies that are no longer required
+  apt:
+    autoremove: yes
+  tags: install
+
+- name: Enable mongodb service
+  systemd:
+    name: mongodb
+    enabled: yes
+  tags: install
+```
+
+Настройку `mongodb` вынесем в отдельный файл `config_mongo.yml`:
+```yaml
+- name: Change mongodb config file
+  template:
+    src: mongodb.conf.j2
+    dest: /etc/mongodb.conf
+    mode: 0644
+  notify: restart mongodb
+```
+
+Вызов задач будем производить из `main.yml`:
+```yaml
+# tasks file for db
+
+- name: Show info about the env this host belongs to
+  debug: msg="This host is in {{ env }} environment!!!"
+
+- include: install_mongo.yml
+- include: config_mongo.yml
+```
+
+Проверим, как работают наши изменения, применив их при помощи `vagrant provision dbserver`:
+```console
+==> dbserver: Running provisioner: ansible...
+    dbserver: Running ansible-playbook...
+
+PLAY [Install Python] **********************************************************
+
+TASK [Gathering Facts] *********************************************************
+ok: [dbserver]
+
+TASK [Check for Python] ********************************************************
+ok: [dbserver]
+
+TASK [Install Pyhon use raw module] ********************************************
+skipping: [dbserver]
+
+PLAY [Configure MongoDB] *******************************************************
+
+TASK [Gathering Facts] *********************************************************
+ok: [dbserver]
+
+TASK [db : Show info about the env this host belongs to] ***********************
+ok: [dbserver] => {
+    "msg": "This host is in local environment!!!"
+}
+
+TASK [db : Install mongodb] ****************************************************
+The following additional packages will be installed:
+  libboost-filesystem1.58.0 libboost-program-options1.58.0
+  libboost-system1.58.0 libboost-thread1.58.0 libgoogle-perftools4
+  libpcrecpp0v5 libsnappy1v5 libtcmalloc-minimal4 libunwind8 libv8-3.14.5
+  libyaml-cpp0.5v5 mongodb-clients mongodb-server
+The following NEW packages will be installed:
+  libboost-filesystem1.58.0 libboost-program-options1.58.0
+  libboost-system1.58.0 libboost-thread1.58.0 libgoogle-perftools4
+  libpcrecpp0v5 libsnappy1v5 libtcmalloc-minimal4 libunwind8 libv8-3.14.5
+  libyaml-cpp0.5v5 mongodb mongodb-clients mongodb-server
+0 upgraded, 14 newly installed, 0 to remove and 1 not upgraded.
+[WARNING]: Updating cache and auto-installing missing dependency: python-apt
+changed: [dbserver]
+
+TASK [db : Remove useless packages from the cache] *****************************
+ok: [dbserver]
+
+TASK [db : Remove dependencies that are no longer required] ********************
+ok: [dbserver]
+
+TASK [db : Enable mongodb service] *********************************************
+ok: [dbserver]
+
+TASK [db : Change mongodb config file] *****************************************
+ok: [dbserver]
+[WARNING]: Could not match supplied host pattern, ignoring: app
+
+PLAY [Configure App] ***********************************************************
+skipping: no hosts matched
+
+PLAY [Deploy App] **************************************************************
+skipping: no hosts matched
+
+PLAY RECAP *********************************************************************
+dbserver                   : ok=9    changed=1    unreachable=0    failed=0    skipped=1    rescued=0    ignored=0
+```
+
+Зайдём на `dbserver` и проверим статус `mongodb`:
+```condole
+vagrant@dbserver:~$ systemctl status mongodb
+● mongodb.service - An object/document-oriented database
+   Loaded: loaded (/lib/systemd/system/mongodb.service; enabled; vendor preset: e
+   Active: active (running) since Thu 2022-08-04 04:51:08 UTC; 46s ago
+     Docs: man:mongod(1)
+ Main PID: 1166 (mongod)
+    Tasks: 10
+   Memory: 60.2M
+      CPU: 848ms
+   CGroup: /system.slice/mongodb.service
+           └─1166 /usr/bin/mongod --config /etc/mongodb.conf
+```
+
+Аналогичным способом обновим роль `app`, перенесём в неё задачи установки и настройки нашего приложения `reddit-app`.
+Файл `ruby.yml`:
+```yaml
+- name: Install packages for app base
+  apt:
+    name: ['apt-transport-https', 'ca-certificates', 'ruby-full', 'ruby-bundler', 'build-essential', 'git']
+    state: present
+    update_cache: yes
+  retries: 5
+  delay: 20
+  tags: ruby
+
+- name: Remove useless packages from the cache
+  apt:
+    autoclean: yes
+  tags: ruby
+
+- name: Remove dependencies that are no longer required
+  apt:
+    autoremove: yes
+  tags: ruby
+```
+
+Файл `puma.yml`:
+```yaml
+- name: Add unit file for Puma
+  copy:
+    src: puma.service
+    dest: /etc/systemd/system/puma.service
+    mode: '0644'
+  notify: reload puma
+  tags: puma
+
+- name: Add config for DB connection
+  template:
+    src: db_config.j2
+    dest: /home/ubuntu/db_config
+    owner: ubuntu
+    group: ubuntu
+    mode: '0644'
+  notify: reload puma
+  tags: puma
+
+- name: enable puma
+  systemd: name=puma enabled=yes
+  tags: puma
+```
+
+Ну и сам файл `main.yml`:
+```yaml
+# tasks file for app
+
+- name: Show info about the env this host belongs to
+  debug:
+    msg: "This host is in {{ env }} environment!!!"
+
+- include: ruby.yml
+- include: puma.yml
+```
+
+`Vagrantfile` также нужно обновить, добавив туда секцию настройки `appserver`:
+```ruby
+Vagrant.configure("2") do |config|
+
+  config.vm.provider :virtualbox do |v|
+    v.memory = 512
+  end
+
+  config.vm.define "dbserver" do |db|
+    db.vm.box = "ubuntu/xenial64"
+    db.vm.hostname = "dbserver"
+    db.vm.network :private_network, ip: "192.168.56.10"
+
+    db.vm.provision "ansible" do |ansible|
+      ansible.playbook = "playbooks/site.yml"
+      ansible.groups = {
+      "db" => ["dbserver"],
+      "db:vars" => {"mongo_bind_ip" => "0.0.0.0"}
+      }
+    end
+  end
+
+  config.vm.define "appserver" do |app|
+    app.vm.box = "ubuntu/xenial64"
+    app.vm.hostname = "appserver"
+    app.vm.network :private_network, ip: "192.168.56.20"
+
+    app.vm.provision "ansible" do |ansible|
+      ansible.playbook = "playbooks/site.yml"
+      ansible.groups = {
+      "app" => ["appserver"],
+      "app:vars" => {"db_host" => "192.168.56.10"}
+      }
+    end
+  end
+end
+```
+
+Проверяем наши изменения, запустив `vagrant provision appserver`. Процесс отработал, ошибок нет. В методичке сказано, что долны быть проблемы из-за некорректного пользователя. У нас пользователь совпал, проблем нет. Предлагается параметризировать конфигурацию, чтобы можно было использовать любого пользователя. Сделаем это.
+
+Добавляем пользователя в `roles/app/defaults/main.yml`:
+```yaml
+# defaults file for app
+
+db_host: 127.0.0.1
+env: local
+deploy_user: appuser
+```
+
+Затем меняем `roles/app/tasks/puma.yaml`, unit-файл будем добавлять через шаблон:
+```yaml
+- name: Add unit file for Puma
+  template:
+    src: puma.service.j2
+    dest: /etc/systemd/system/puma.service
+    mode: '0644'
+  notify: reload puma
+  tags: puma
+
+- name: Add config for DB connection
+  template:
+    src: db_config.j2
+    dest: /home/ubuntu/db_config
+    owner: ubuntu
+    group: ubuntu
+    mode: '0644'
+  notify: reload puma
+  tags: puma
+
+- name: enable puma
+  systemd: name=puma enabled=yes
+  tags: puma
+```
+
+Переместим `roles/app/files/puma.service` в `roles/app/templates/puma.service.j2` и заменим все упоминания пользователя на переменную:
+```ini
+[Unit]
+Description=Puma HTTP Server
+After=network.target
+
+[Service]
+Type=simple
+EnvironmentFile=/home/{{ deploy_user }}/db_config
+User={{ deploy_user }}
+WorkingDirectory=/home/{{ deploy_user }}/reddit
+ExecStart=/bin/bash -lc 'puma'
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Также вносим параметры в `roles/app/tasks/puma.yml`:
+```yaml
+- name: Add unit file for Puma
+  template:
+    src: puma.service.j2
+    dest: /etc/systemd/system/puma.service
+    mode: '0644'
+  notify: reload puma
+  tags: puma
+
+- name: Add config for DB connection
+  template:
+    src: db_config.j2
+    dest: "/home/{{ deploy_user }}/db_config"
+    owner: "{{ deploy_user }}"
+    group: "{{ deploy_user }}"
+    mode: '0644'
+  notify: reload puma
+  tags: puma
+
+- name: enable puma
+  systemd: name=puma enabled=yes
+  tags: puma
+```
+
+Не забываем про `playbooks/deploy.yml`:
+```yaml
+- name: Deploy App
+  hosts: app
+  become: true
+  tasks:
+    - name: Install git
+      apt:
+        name: git
+        state: present
+
+    - name: Fetch the latest version of application code
+      git:
+        repo: 'https://github.com/express42/reddit.git'
+        dest: "/home/{{ deploy_user }}/reddit"
+        version: monolith
+      notify: reload puma
+
+    - name: Bundle install
+      bundler:
+        state: present
+        chdir: "/home/{{ deploy_user }}/reddit"
+      notify: reload puma
+
+  handlers:
+    - name: reload puma
+      systemd: name=puma state=restarted
+```
+
+Переменную задаим в `Vagtantfile`:
+```ruby
+Vagrant.configure("2") do |config|
+
+  config.vm.provider :virtualbox do |v|
+    v.memory = 512
+  end
+
+  config.vm.define "dbserver" do |db|
+    db.vm.box = "ubuntu/xenial64"
+    db.vm.hostname = "dbserver"
+    db.vm.network :private_network, ip: "192.168.56.10"
+
+    db.vm.provision "ansible" do |ansible|
+      ansible.playbook = "playbooks/site.yml"
+      ansible.groups = {
+      "db" => ["dbserver"],
+      "db:vars" => {"mongo_bind_ip" => "0.0.0.0"}
+      }
+    end
+  end
+
+  config.vm.define "appserver" do |app|
+    app.vm.box = "ubuntu/xenial64"
+    app.vm.hostname = "appserver"
+    app.vm.network :private_network, ip: "192.168.56.20"
+
+    app.vm.provision "ansible" do |ansible|
+      ansible.playbook = "playbooks/site.yml"
+      ansible.groups = {
+      "app" => ["appserver"],
+      "app:vars" => {"db_host" => "192.168.56.10"}
+      }
+      ansible.extra_vars = {
+      "deploy_user" => "ubuntu"
+      }
+    end
+  end
+end
+```
+
+Запускаем `vagrant provision appserver` и проверяем работу приложения `lynx http://192.168.56.20:9292`:
+
+```console
+                                                     Monolith Reddit :: All posts
+   (BUTTON) Monolith Reddit
+     * Sign up
+     * Login
+
+Menu
+
+     * All posts
+     * New post
+```
+
+Для уверенности, что всё работает корректно, можно удалить машины `vagrant destroy` и создать их заново `vagrant up`. После запуска и настройки машин проверяем доступность приложения на порту 9292. Всё работает корректно :)
+
+---
+
+Если подключиться к порту 80 сервера приложений, то мы увидим стартовую страницу `nginx`, а не то, что мы хотели. Надо разобраться.
+Для настройки `nginx` мы используем роль, которая ожидает настройки в виде списка сайтов в переменной `nginx_sites`. В исходных переменных список состоял только из одного сайта и выглядел так:
+```yaml
+  default:
+    - listen 80
+    - server_name reddit
+    - location / { proxy_pass http://127.0.0.1:9292; }
+```
+
+Берём любой [конвертер YAML2JSON](https://www.json2yaml.com/convert-yaml-to-json) и получаем на выходе это:
+```json
+{
+  "default": [
+    "listen 80",
+    "server_name reddit",
+    "location / { proxy_pass http://127.0.0.1:9292; }"
+  ]
+}
+```
+
+Добавляем этот JSON в переменную `nginx_sites` и получаем наш `Vagrantfile`:
+```ruby
+Vagrant.configure("2") do |config|
+
+  config.vm.provider :virtualbox do |v|
+    v.memory = 512
+  end
+
+  config.vm.define "dbserver" do |db|
+    db.vm.box = "ubuntu/xenial64"
+    db.vm.hostname = "dbserver"
+    db.vm.network :private_network, ip: "192.168.56.10"
+
+    db.vm.provision "ansible" do |ansible|
+      ansible.playbook = "playbooks/site.yml"
+      ansible.groups = {
+      "db" => ["dbserver"],
+      "db:vars" => {"mongo_bind_ip" => "0.0.0.0"}
+      }
+    end
+  end
+
+  config.vm.define "appserver" do |app|
+    app.vm.box = "ubuntu/xenial64"
+    app.vm.hostname = "appserver"
+    app.vm.network :private_network, ip: "192.168.56.20"
+
+    app.vm.provision "ansible" do |ansible|
+      ansible.playbook = "playbooks/site.yml"
+      ansible.groups = {
+        "app" => ["appserver"],
+        "app:vars" => {
+          "db_host" => "192.168.56.10",
+          "nginx_sites" => '{"default":["listen 80", "server_name reddit", "location / { proxy_pass http://127.0.0.1:9292; }"]}'
+        }
+      }
+      ansible.extra_vars = { "deploy_user" => "ubuntu" }
+    end
+  end
+end
+```
+
+Применяем настройки к серверу `vagrant provision appserver`, проверяем, сервер приложений отвечает нашим сайтом на порту 80.
+
+---
+
+Переходим к тестированию ролей. Для локального тестирования будем использовать Molecule для создания машин и проверки конфигурации и Testinfra для написания тестов. Настроим окружение, установим все необходимые инструменты. Обновляем файл зависимостей:
+```console
+> cat requirements.txt
+ansible>=2.4
+molecule>=2.6
+testinfra>=1.10
+python-vagrant>=0.5.15
+molecule-vagrant>=1.0.0
+```
+
+Устанавливаем инструменты: `pip install -r requirements.txt`. Проверяем, что всё работает:
+```console
+> ansible --version
+ansible 2.10.8
+
+> molecule --version
+molecule 4.0.1 using python 3.10
+    ansible:2.10.8
+    delegated:4.0.1 from molecule
+    vagrant:1.0.0 from molecule_vagrant
+
+> py.test-3
+============================== test session starts ==============================
+platform linux -- Python 3.10.4, pytest-6.2.5, py-1.10.0, pluggy-0.13.0 -- /usr/bin/python3
+cachedir: .pytest_cache
+rootdir: /home/.../ansible
+plugins: testinfra-6.5.0
+collected 0 items
+============================= no tests ran in 0.02s =============================
+```
+
+Тестирование начнём с роли `db`. В папке с ролью инициализируем сценарий:
+```console
+> molecule init scenario -r db -d vagrant
+INFO     Initializing new scenario default...
+INFO     Initialized scenario in /home/.../ansible/roles/db/molecule/default successfully.
+```
+
+В файле описания виртуальной машины `ansible/roles/db/molecule/default/molecule.yml`, поле `box`, укажем исходный образ. Так, как для проверки ролей мы планируем использовать фреймворк `testinfra`, то укажем его в секции `verifier`:
+```yaml
+dependency:
+  name: galaxy
+driver:
+  name: vagrant
+platforms:
+  - name: instance
+    box: ubuntu/xenial64
+provisioner:
+  name: ansible
+verifier:
+  name: testinfra
+```
+
+Далее создаём машину для проверки роли. Для этого в папке `ansible/roles/db` выполняем `molecule create`:
+```console
+INFO     default scenario test matrix: dependency, create, prepare
+INFO     Performing prerun with role_name_check=0...
+INFO     Running default > dependency
+INFO     Running default > create
+
+PLAY [Create] *****************************************************************************************************
+
+TASK [Create molecule instance(s)] ********************************************************************************
+changed: [localhost]
+
+TASK [Populate instance config dict] ******************************************************************************
+ok: [localhost] => (item={'Host': 'instance', 'HostName': '127.0.0.1', 'User': 'vagrant', 'Port': '2222',
+'UserKnownHostsFile': '/dev/null', 'StrictHostKeyChecking': 'no', 'PasswordAuthentication': 'no',
+'IdentityFile': '/home/.../.cache/molecule/db/default/.vagrant/machines/instance/virtualbox/private_key',
+'IdentitiesOnly': 'yes', 'LogLevel': 'FATAL'})
+
+TASK [Convert instance config dict to a list] *********************************************************************
+ok: [localhost]
+
+TASK [Dump instance config] ***************************************************************************************
+changed: [localhost]
+
+PLAY RECAP *******************************************************************************************************
+localhost                  : ok=4    changed=2    unreachable=0    failed=0    skipped=0    rescued=0    ignored=0
+
+INFO     Running default > prepare
+
+PLAY [Prepare] ****************************************************************************************************
+
+TASK [Bootstrap python for Ansible] *******************************************************************************
+ok: [instance]
+
+PLAY RECAP ********************************************************************************************************
+instance                   : ok=1    changed=0    unreachable=0    failed=0    skipped=0    rescued=0    ignored=0
+
+```
+
+Проверим, что машина была создана и доступна для работы:
+```console
+> molecule list
+INFO     Running default > list
+               ╷             ╷             ╷              ╷         ╷
+  Instance     │             │ Provisioner │ Scenario     │         │
+  Name         │ Driver Name │ Name        │ Name         │ Created │ Converged
+╶──────────────┼─────────────┼─────────────┼──────────────┼─────────┼───────────╴
+  instance     │ vagrant     │ ansible     │ default      │ true    │ false
+               ╵             ╵             ╵              ╵         ╵
+```
+
+В файл `ansible/roles/db/molecule/defaultconverge.yml` добавим `become` и переменную `mongo_bind_ip`:
+```yaml
+- name: Converge
+  hosts: all
+  become: true
+  vars:
+    mongo_bind_ip: 0.0.0.0
+  tasks:
+    - name: "Include db"
+      include_role:
+        name: "db"
+```
+
+Применим роль к созданной виртуальной машине:
+```console
+> molecule converge
+
+INFO     default scenario test matrix: dependency, create, prepare, converge
+INFO     Performing prerun with role_name_check=0...
+INFO     Running default > dependency
+INFO     Running default > create
+INFO     Running default > prepare
+INFO     Running default > converge
+
+PLAY [Converge] **************************************************************************************************
+
+TASK [Gathering Facts] *******************************************************************************************
+ok: [instance]
+
+TASK [Include db] ************************************************************************************************
+
+TASK [db : Show info about the env this host belongs to] *********************************************************
+ok: [instance] => {
+    "msg": "This host is in local environment!!!"
+}
+
+TASK [db : Install mongodb] **************************************************************************************
+changed: [instance]
+
+TASK [db : Remove useless packages from the cache] ***************************************************************
+ok: [instance]
+
+TASK [db : Remove dependencies that are no longer required] ******************************************************
+ok: [instance]
+
+TASK [db : Enable mongodb service] *******************************************************************************
+ok: [instance]
+
+TASK [db : Change mongodb config file] ***************************************************************************
+changed: [instance]
+
+RUNNING HANDLER [db : restart mongodb] ***************************************************************************
+changed: [instance]
+
+PLAY RECAP *******************************************************************************************************
+instance                   : ok=8    changed=3    unreachable=0    failed=0    skipped=0    rescued=0    ignored=0
+```
+
+При желании можно зайти на созданную машину `molecule login -h instance` проверить состояние сервиса `mongodb`:
+```console
+vagrant@instance:~$ systemctl status mongodb
+● mongodb.service - An object/document-oriented database
+   Loaded: loaded (/lib/systemd/system/mongodb.service; enabled; vendor preset: e
+   Active: active (running) since Wed 1986-04-25 21:23:00 UTC; 36 years ago
+     Docs: man:mongod(1)
+ Main PID: 777 (mongod)
+    Tasks: 10
+   Memory: 45.3M
+      CPU: 1.226s
+   CGroup: /system.slice/mongodb.service
+           └─777 /usr/bin/mongod --config /etc/mongodb.conf
+```
+
+Статус машины изменился:
+```console
+> molecule list
+INFO     Running default > list
+               ╷             ╷             ╷              ╷         ╷
+  Instance     │             │ Provisioner │ Scenario     │         │
+  Name         │ Driver Name │ Name        │ Name         │ Created │ Converged
+╶──────────────┼─────────────┼─────────────┼──────────────┼─────────┼───────────╴
+  instance     │ vagrant     │ ansible     │ default      │ true    │ true
+               ╵             ╵             ╵              ╵         ╵
+```
+
+Для проверки создадим простые тесты в файле `ansible/roles/db/molecule/default/tests/test_default.py`:
+```python
+import os
+
+import testinfra.utils.ansible_runner
+
+testinfra_hosts = testinfra.utils.ansible_runner.AnsibleRunner(
+    os.environ['MOLECULE_INVENTORY_FILE']).get_hosts('all')
+
+# check if MongoDB is enabled and running
+def test_mongo_running_and_enabled(host):
+    mongo = host.service("mongodb")
+    assert mongo.is_running
+    assert mongo.is_enabled
+
+# check if configuration file contains the required line
+def test_config_file(host):
+    config_file = host.file('/etc/mongodb.conf')
+    assert config_file.contains('bindIp: 0.0.0.0')
+    assert config_file.is_file
+```
+
+Запускаем тест:
+```console
+> molecule verify
+INFO     default scenario test matrix: verify
+INFO     Performing prerun with role_name_check=0...
+INFO     Running default > verify
+INFO     Executing Testinfra tests found in /home/.../ansible/roles/db/molecule/default/tests/...
+Unknown command: pytest
+
+pytest --ansible-inventory /home/.../.cache/molecule/db/default/inventory/ansible_inventory.yml --connection ansible -p no:cacheprovider /home/.../ansible/roles/db/molecule/default/tests/test_default.py
+^
+WARNING  Retrying execution failure 127 of: pytest --ansible-inventory /home/.../.cache/molecule/db/default/inventory/ansible_inventory.yml --connection ansible -p no:cacheprovider /home/.../ansible/roles/db/molecule/default/tests/test_default.py
+```
+
+Тесты ожидают, что исполняемый файл `testinfra` называется `pytest`, а он у нас установлен с именем `pytest-3`. Сделаем символическую ссылку: `sudo ln -s /usr/bin/pytest-3 /usr/bin/pytest`.
+
+Запускаем тесты ещё раз:
+```console
+> molecule verify
+INFO     default scenario test matrix: verify
+INFO     Performing prerun with role_name_check=0...
+INFO     Running default > verify
+INFO     Executing Testinfra tests found in /home/.../ansible/roles/db/molecule/default/tests/...
+============================= test session starts ==============================
+platform linux -- Python 3.10.4, pytest-6.2.5, py-1.10.0, pluggy-0.13.0
+rootdir: /home/...
+plugins: testinfra-6.5.0
+collected 2 items
+
+molecule/default/tests/test_default.py ..                                [100%]
+
+============================== 2 passed in 3.67s ===============================
+INFO     Verifier completed successfully.
+```
+
+Тесты прошли успешно.
+
+Добавим проверку того, что сервис БД прослушивает порт 27017:
+```python
+import os
+
+import testinfra.utils.ansible_runner
+
+testinfra_hosts = testinfra.utils.ansible_runner.AnsibleRunner(
+    os.environ['MOLECULE_INVENTORY_FILE']).get_hosts('all')
+
+# check if MongoDB is enabled and running
+def test_mongo_running_and_enabled(host):
+    mongo = host.service("mongodb")
+    assert mongo.is_running
+    assert mongo.is_enabled
+
+# check if configuration file contains the required line
+def test_config_file(host):
+    config_file = host.file('/etc/mongodb.conf')
+    assert config_file.contains('bindIp: 0.0.0.0')
+    assert config_file.is_file
+
+# check if MongoDB listen port 27017
+def test_mongo_listen_port(host):
+    mongo_socket = host.socket("tcp://0.0.0.0:27017")
+    assert mongo_socket.is_listening
+```
+
+Проверяем:
+```console
+> molecule verify
+INFO     default scenario test matrix: verify
+INFO     Performing prerun with role_name_check=0...
+INFO     Running default > verify
+INFO     Executing Testinfra tests found in /home/.../ansible/roles/db/molecule/default/tests/...
+============================= test session starts ==============================
+platform linux -- Python 3.10.4, pytest-6.2.5, py-1.10.0, pluggy-0.13.0
+rootdir: /home/...
+plugins: testinfra-6.5.0
+collected 3 items
+
+molecule/default/tests/test_default.py ...                               [100%]
+
+============================== 3 passed in 4.70s ===============================
+INFO     Verifier completed successfully.
+```
+
+Тест проходит, порт прослушивается, отлично.
+Далее нас просят использовать роли в db и app в плейбуках packer_db.yml (установка MongoDB) и packer_app.yml (установка Ruby).
+Для начала проверим, работает ли конфигурация из прошлых домашних заданий: `packer validate -var-file=variables.json  db.json`.
+Проверка прошла успешно, но мне пршлось исправить путь к плейбукам, т.к. мы их перемещали.
+Меняем файл `packer_app.yml`, убираем задачи, добавляем роль:
+```yaml
+- name: Install base for application deploy
+  hosts: all
+  become: true
+
+  roles:
+    - app
+```
+
+Так, как нам нужно выполнить только установку `ruby`, то воспользуемся тегами. Всё, что касается установки, отмечено тегом `ruby`.
+В плане тегов читаем официальную [документацию](https://www.packer.io/plugins/provisioners/ansible/ansible), после этого получим такой файл `app.json`:
+```json
+{
+    "variables": {
+        "mv_service_account_key_file": "",
+        "mv_folder_id": "",
+        "mv_source_image_family": ""
+    },
+    "builders": [
+        {
+            "type": "yandex",
+            "service_account_key_file": "{{user `mv_service_account_key_file`}}",
+            "folder_id": "{{user `mv_folder_id`}}",
+            "source_image_family": "{{user `mv_source_image_family`}}",
+            "image_name": "reddit-app-{{timestamp}}",
+            "image_family": "reddit-app",
+            "ssh_username": "ubuntu",
+            "platform_id": "standard-v1",
+            "use_ipv4_nat": "true"
+        }
+    ],
+    "provisioners": [
+        {
+            "type": "ansible",
+            "playbook_file": "../ansible/playbooks/packer_app.yml",
+            "extra_arguments": [ "--tags", "ruby"]
+        }
+    ]
+}
+```
+
+Пробуем собрать образ:
+```console
+> packer build -var-file=variables.json  app.json
+yandex: output will be in this color.
+
+==> yandex: Creating temporary RSA SSH key for instance...
+==> yandex: Using as source image: fd8177ttrp7i4qqc75d6 (name: "ubuntu-16-04-lts-v20220801", family: "ubuntu-1604-lts")
+==> yandex: Creating network...
+==> yandex: Creating subnet in zone "ru-central1-a"...
+==> yandex: Creating disk...
+==> yandex: Creating instance...
+==> yandex: Waiting for instance with id fhmog84indmfadbmk971 to become active...
+    yandex: Detected instance IP: 62.84.114.111
+==> yandex: Using SSH communicator to connect: 62.84.114.111
+==> yandex: Waiting for SSH to become available...
+==> yandex: Connected to SSH!
+==> yandex: Provisioning with Ansible...
+    yandex: Setting up proxy adapter for Ansible....
+==> yandex: Executing Ansible: ansible-playbook -e packer_build_name="yandex" -e packer_builder_type=yandex --ssh-extra-args '-o IdentitiesOnly=yes' --tags ruby -e ansible_ssh_private_key_file=/tmp/ansible-key3143671882 -i /tmp/packer-provisioner-ansible992580919 /home/.../ansible/playbooks/packer_app.yml
+    yandex: ERROR! the role 'app' was not found in /home/.../ansible/playbooks/roles:/home/.../.ansible/roles:/usr/share/ansible/roles:/etc/ansible/roles:/home/.../ansible/playbooks
+    yandex:
+    yandex: The error appears to be in '/home/.../ansible/playbooks/packer_app.yml': line 7, column 7, but may
+    yandex: be elsewhere in the file depending on the exact syntax problem.
+    yandex:
+    yandex: The offending line appears to be:
+    yandex:
+    yandex:   roles:
+    yandex:     - app
+    yandex:       ^ here
+==> yandex: Provisioning step had errors: Running the cleanup provisioner, if present...
+==> yandex: Destroying instance...
+    yandex: Instance has been destroyed!
+==> yandex: Destroying subnet...
+    yandex: Subnet has been deleted!
+==> yandex: Destroying network...
+    yandex: Network has been deleted!
+==> yandex: Destroying boot disk...
+    yandex: Disk has been deleted!
+Build 'yandex' errored after 1 minute 28 seconds: Error executing Ansible: Non-zero exit status: exit status 1
+
+==> Wait completed after 1 minute 28 seconds
+
+==> Some builds didn't complete successfully and had errors:
+--> yandex: Error executing Ansible: Non-zero exit status: exit status 1
+
+==> Builds finished but no artifacts were created.
+```
+
+Сборщик не может найти роль. Выше видно, где он пытается её искать, но её там реально нет. [Подскажем](https://docs.ansible.com/ansible/latest/reference_appendices/config.html#default-roles-path), при помощи переменных окружения `ansible`. Шаблон примет такой вид:
+```json
+{
+    "variables": {
+        "mv_service_account_key_file": "",
+        "mv_folder_id": "",
+        "mv_source_image_family": ""
+    },
+    "builders": [
+        {
+            "type": "yandex",
+            "service_account_key_file": "{{user `mv_service_account_key_file`}}",
+            "folder_id": "{{user `mv_folder_id`}}",
+            "source_image_family": "{{user `mv_source_image_family`}}",
+            "image_name": "reddit-app-{{timestamp}}",
+            "image_family": "reddit-app",
+            "ssh_username": "ubuntu",
+            "platform_id": "standard-v1",
+            "use_ipv4_nat": "true"
+        }
+    ],
+    "provisioners": [
+        {
+            "type": "ansible",
+            "playbook_file": "../ansible/playbooks/packer_app.yml",
+            "extra_arguments": [ "--tags", "ruby"],
+            "ansible_env_vars": ["ANSIBLE_ROLES_PATH=../ansible/roles"]
+        }
+    ]
+}
+```
+
+Собираем образ:
+```console
+> packer build -var-file=variables.json  app.json
+yandex: output will be in this color.
+
+==> yandex: Creating temporary RSA SSH key for instance...
+==> yandex: Using as source image: fd8177ttrp7i4qqc75d6 (name: "ubuntu-16-04-lts-v20220801", family: "ubuntu-1604-lts")
+==> yandex: Creating network...
+==> yandex: Creating subnet in zone "ru-central1-a"...
+==> yandex: Creating disk...
+==> yandex: Creating instance...
+==> yandex: Waiting for instance with id fhmba8u25iudfv8o176q to become active...
+    yandex: Detected instance IP: 51.250.64.192
+==> yandex: Using SSH communicator to connect: 51.250.64.192
+==> yandex: Waiting for SSH to become available...
+==> yandex: Connected to SSH!
+==> yandex: Provisioning with Ansible...
+    yandex: Setting up proxy adapter for Ansible....
+==> yandex: Executing Ansible: ansible-playbook -e packer_build_name="yandex" -e packer_builder_type=yandex --ssh-extra-args '-o IdentitiesOnly=yes' --tags ruby -e ansible_ssh_private_key_file=/tmp/ansible-key1939102186 -i /tmp/packer-provisioner-ansible2160329206 /home/.../ansible/playbooks/packer_app.yml
+    yandex:
+    yandex: PLAY [Install base for application deploy] ***********************************************************************
+    yandex:
+    yandex: TASK [Gathering Facts] *******************************************************************************************
+    yandex: ok: [default]
+    yandex:
+    yandex: TASK [app : Install packages for app base] ***********************************************************************
+    yandex: changed: [default]
+    yandex:
+    yandex: TASK [app : Remove useless packages from the cache] **************************************************************
+    yandex: changed: [default]
+    yandex:
+    yandex: TASK [app : Remove dependencies that are no longer required] *****************************************************
+    yandex: ok: [default]
+    yandex:
+    yandex: PLAY RECAP *******************************************************************************************************
+    yandex: default                    : ok=4    changed=2    unreachable=0    failed=0    skipped=0    rescued=0    ignored=0
+    yandex:
+==> yandex: Stopping instance...
+==> yandex: Deleting instance...
+    yandex: Instance has been deleted!
+==> yandex: Creating image: reddit-app-1660189627
+==> yandex: Waiting for image to complete...
+==> yandex: Success image create...
+==> yandex: Destroying subnet...
+    yandex: Subnet has been deleted!
+==> yandex: Destroying network...
+    yandex: Network has been deleted!
+==> yandex: Destroying boot disk...
+    yandex: Disk has been deleted!
+Build 'yandex' finished after 3 minutes 5 seconds.
+
+==> Wait completed after 3 minutes 5 seconds
+
+==> Builds finished. The artifacts of successful builds are:
+--> yandex: A disk image was created: reddit-app-1660189627 (id: fd836o0mp9hcpq0unage) with family name reddit-app
+```
+
+Всё прошло хорошо. Аналогично обновим файлы для сборки образа `db`.
+Файл `cat packer_db.yml`:
+```yaml
+- name: Install base for database server
+  hosts: all
+  become: true
+
+  roles:
+    - db
+```
+
+Файл `db.json`:
+```json
+{
+    "variables": {
+        "mv_service_account_key_file": "",
+        "mv_folder_id": "",
+        "mv_source_image_family": ""
+    },
+    "builders": [
+        {
+            "type": "yandex",
+            "service_account_key_file": "{{user `mv_service_account_key_file`}}",
+            "folder_id": "{{user `mv_folder_id`}}",
+            "source_image_family": "{{user `mv_source_image_family`}}",
+            "image_name": "reddit-db-{{timestamp}}",
+            "image_family": "reddit-db",
+            "ssh_username": "ubuntu",
+            "platform_id": "standard-v1",
+            "use_ipv4_nat": "true"
+        }
+    ],
+    "provisioners": [
+        {
+            "type": "ansible",
+            "playbook_file": "../ansible/playbooks/packer_db.yml",
+            "extra_arguments": [ "--tags", "install"],
+            "ansible_env_vars": ["ANSIBLE_ROLES_PATH=../ansible/roles"]
+        }
+    ]
+}
+```
+
+Проверяем сборку образа:
+```console
+> packer build -var-file=variables.json db.json
+yandex: output will be in this color.
+
+==> yandex: Creating temporary RSA SSH key for instance...
+==> yandex: Using as source image: fd8177ttrp7i4qqc75d6 (name: "ubuntu-16-04-lts-v20220801", family: "ubuntu-1604-lts")
+==> yandex: Creating network...
+==> yandex: Creating subnet in zone "ru-central1-a"...
+==> yandex: Creating disk...
+==> yandex: Creating instance...
+==> yandex: Waiting for instance with id fhm1b74fb6c22vnapqu4 to become active...
+    yandex: Detected instance IP: 51.250.66.135
+==> yandex: Using SSH communicator to connect: 51.250.66.135
+==> yandex: Waiting for SSH to become available...
+==> yandex: Connected to SSH!
+==> yandex: Provisioning with Ansible...
+    yandex: Setting up proxy adapter for Ansible....
+==> yandex: Executing Ansible: ansible-playbook -e packer_build_name="yandex" -e packer_builder_type=yandex --ssh-extra-args '-o IdentitiesOnly=yes' --tags install -e ansible_ssh_private_key_file=/tmp/ansible-key3846119512 -i /tmp/packer-provisioner-ansible3368069999 /home/.../ansible/playbooks/packer_db.yml
+    yandex:
+    yandex: PLAY [Install base for database server] **************************************************************************
+    yandex:
+    yandex: TASK [Gathering Facts] *******************************************************************************************
+    yandex: ok: [default]
+    yandex:
+    yandex: TASK [db : Install mongodb] **************************************************************************************
+    yandex: changed: [default]
+    yandex:
+    yandex: TASK [db : Remove useless packages from the cache] ***************************************************************
+    yandex: changed: [default]
+    yandex:
+    yandex: TASK [db : Remove dependencies that are no longer required] ******************************************************
+    yandex: ok: [default]
+    yandex:
+    yandex: TASK [db : Enable mongodb service] *******************************************************************************
+    yandex: ok: [default]
+    yandex:
+    yandex: PLAY RECAP *******************************************************************************************************
+    yandex: default                    : ok=5    changed=2    unreachable=0    failed=0    skipped=0    rescued=0    ignored=0
+    yandex:
+==> yandex: Stopping instance...
+==> yandex: Deleting instance...
+    yandex: Instance has been deleted!
+==> yandex: Creating image: reddit-db-1660190159
+==> yandex: Waiting for image to complete...
+==> yandex: Success image create...
+==> yandex: Destroying subnet...
+    yandex: Subnet has been deleted!
+==> yandex: Destroying network...
+    yandex: Network has been deleted!
+==> yandex: Destroying boot disk...
+    yandex: Disk has been deleted!
+Build 'yandex' finished after 3 minutes 26 seconds.
+
+==> Wait completed after 3 minutes 26 seconds
+
+==> Builds finished. The artifacts of successful builds are:
+--> yandex: A disk image was created: reddit-db-1660190159 (id: fd8d08836d6u37qffj8f) with family name reddit-db
+```
+
+Прекрасно, образы собраны с использованием ролей.
+
+**Результат №10-1:**
+- Мы использовали Vagrant для локально разработки ролей
+- Мы протестировали роли при помощи Molecule и Testinfra
+- Мы использовали полученные роли для сбора образов при помощи Packer
+
+---
+
+**Задание №10-2:**
+Вынести роль db в отдельный репозиторий: удалить роль из репозитория infra и сделать подключение роли через requirements.yml обоих окружений;
+
+**Решение №10-2:**
+Посмотрим, какие роли у нас присутствуют в системе. Для этого в каталоге `ansible` выполним `ansible-galaxy list`:
+```console
+> ansible-galaxy list
+# /home/.../ansible/roles
+- jdauphant.nginx, v2.21.1
+- db, (unknown version)
+- app, (unknown version)
+```
+
+Пока запакуем роль `db` в архив `tar jcvf db.tgz db` и удалим её из каталога локальных ролей.
+Проверяем:
+```console
+> ansible-galaxy list
+# /home/.../ansible/roles
+- jdauphant.nginx, v2.21.1
+- app, (unknown version)
+```
+
+Прекрасно. Теперь роль нужно внести в файлы `environments/stage/requirements.yml` и `environments/prod/requirements.yml`. Смотрим [документацию](https://galaxy.ansible.com/docs/using/installing.html) на предмет вариантов указания источника получения роли. Так как у нас учебный проект, то размещение на веб-сервере в архиве мне неплохо подходит. Созданный ранее архив разместим в каталоге `/tmp/webserver`. В комплекте с `python` есть модули для веб-сервера, воспользуемся ими. В соседней консоли запустим веб-сервер и проверим его работу:
+```console
+> cd /tmp/webserver && python3 -m http.server
+Serving HTTP on 0.0.0.0 port 8000 (http://0.0.0.0:8000/) ...
+
+> wget http://localhost:8000/db.tgz
+--2022-13-13 00:00:00--  http://localhost:8000/db.tgz
+Resolving localhost (localhost)... 127.0.0.1
+Connecting to localhost (localhost)|127.0.0.1|:8000... connected.
+HTTP request sent, awaiting response... 200 OK
+Length: 3974 (3.9K) [application/x-tar]
+Saving to: ‘db.tgz’
+
+db.tgz               100%[===================>]   3.88K  --.-KB/s    in 0s
+
+2022-13-13 00:00:13 (674 MB/s) - ‘db.tgz’ saved [3974/3974]
+```
+
+Теперь вносим в файл зависимостей нашу роль:
+```yaml
+- src: jdauphant.nginx
+  version: v2.21.1
+
+- src: http://localhost:8000/db.tgz
+  name: db
+```
+
+Устанавливаем зависимости:
+```console
+> ansible-galaxy install -r environments/stage/requirements.yml
+Starting galaxy role install process
+- jdauphant.nginx (v2.21.1) is already installed, skipping.
+- downloading role from http://localhost:8000/db.tgz
+- extracting db to /home/.../ansible/roles/db
+- db was installed successfully
+
+> ansible-galaxy list
+# /home/.../ansible/roles
+- jdauphant.nginx, v2.21.1
+- db, (unknown version)
+- app, (unknown version)
+```
+
+Роль на месте.
+
+---
+
+**Результат №10-2:**
+Мы вынесли роль `db` из репозитория и вернули её, как зависимость, через файл `requirements.yml`.
